@@ -285,7 +285,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rofi-mac"
+name = "rufi"
 version = "0.1.0"
 dependencies = [
  "cocoa",
