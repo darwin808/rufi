@@ -1,0 +1,51 @@
+# === Rust / Cargo ===
+target/
+Cargo.lock # (optional: ignore if you're building a library)
+
+# === Build Artifacts ===
+*.rlib
+*.rmeta
+*.d
+
+# === Debug files ===
+*.pdb
+*.dll
+*.dylib
+*.so
+
+# === Logs / Runtime ===
+*.log
+
+# === IDE / Editor Specific ===
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains / CLion
+.idea/
+
+# Sublime
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+
+# === OS Files ===
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Linux
+*~
+
+# === Misc ===
+.env
+.env.*
+
