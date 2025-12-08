@@ -51,6 +51,7 @@ impl Config {
         match theme.as_str() {
             "8bit" => Self::theme_8bit(),
             "catppuccin" => Self::theme_catppuccin(),
+            "modern" => Self::theme_modern(),
             _ => Self::theme_gruvbox(),
         }
     }
@@ -65,20 +66,20 @@ impl Config {
     pub fn theme_gruvbox() -> Self {
         Config {
             window: WindowConfig {
-                width: 650,
-                height: 450,
+                width: 700,
+                height: 500,
             },
             colors: ColorConfig {
-                background: "#1e1b2e".to_string(),      // Dark purple-blue background
-                text: "#e0e0e0".to_string(),            // Light text for contrast
-                selection_background: "#d946ef".to_string(), // Magenta/pink selection
-                selection_text: "#ffffff".to_string(),
-                input_background: "#2a2640".to_string(), // Slightly lighter purple
-                border: "#3a3a3a".to_string(),
+                background: "#282828".to_string(),      // Gruvbox dark background
+                text: "#ebdbb2".to_string(),            // Gruvbox light foreground
+                selection_background: "#d79921".to_string(), // Gruvbox yellow/gold
+                selection_text: "#282828".to_string(),  // Dark text on selection
+                input_background: "#3c3836".to_string(), // Gruvbox dark1
+                border: "#504945".to_string(),          // Gruvbox dark4
             },
             font: FontConfig {
-                size: 16.0,                              // Slightly smaller for cleaner look
-                family: "SF Pro Display".to_string(),   // Modern macOS system font
+                size: 18.0,                              // Larger for better readability
+                family: "JetBrains Mono".to_string(),   // Monospace for unixporn aesthetic
             },
             theme: "gruvbox".to_string(),
         }
@@ -125,6 +126,33 @@ impl Config {
                 family: "Monaco".to_string(),
             },
             theme: "catppuccin".to_string(),
+        }
+    }
+
+    pub fn theme_modern() -> Self {
+        Config {
+            window: WindowConfig {
+                width: 500,
+                height: 350,
+            },
+            colors: ColorConfig {
+                // Clean white/light background for content area
+                background: "#f5f5f5".to_string(),
+                // Dark text for light background
+                text: "#2d2d2d".to_string(),
+                // Blue selection like macOS
+                selection_background: "#4a90e2".to_string(),
+                selection_text: "#ffffff".to_string(),
+                // Tan/brown search bar matching reference image
+                input_background: "#c9a88a".to_string(),
+                // Border color
+                border: "#d0d0d0".to_string(),
+            },
+            font: FontConfig {
+                size: 16.0,
+                family: "SF Pro Display".to_string(), // macOS system font
+            },
+            theme: "modern".to_string(),
         }
     }
 

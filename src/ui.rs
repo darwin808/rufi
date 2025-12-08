@@ -16,6 +16,7 @@ use crate::{
 
 static DELEGATE_CLASS_INIT: Once = Once::new();
 static BUTTON_ACTION_CLASS_INIT: Once = Once::new();
+static ROW_VIEW_CLASS_INIT: Once = Once::new();
 
 // Wrapper for id that implements Send (safe because all access is on main thread)
 #[derive(Clone, Copy)]
@@ -31,6 +32,7 @@ struct DelegateData {
     search_mode: Arc<Mutex<SearchMode>>, // Current search mode
     search_field: SendId, // Reference to search field for refreshing
     pill_buttons: Vec<SendId>, // References to the 3 pill buttons
+    config: Config, // Configuration for colors and fonts
 }
 
 static DELEGATE_DATA: Mutex<Option<HashMap<usize, DelegateData>>> = Mutex::new(None);
@@ -120,57 +122,81 @@ fn create_text_field_delegate_class() -> *const Class {
                     }
 
                     // Get config colors
-                    let selection_bg = Config::hex_to_nscolor("#d946ef");
-                    let selection_text = Config::hex_to_nscolor("#ffffff");
-                    let normal_text = Config::hex_to_nscolor("#e0e0e0");
+                    let selection_bg = Config::hex_to_nscolor(&data.config.colors.selection_background);
+                    let selection_text = Config::hex_to_nscolor(&data.config.colors.selection_text);
+                    let normal_text = Config::hex_to_nscolor(&data.config.colors.text);
 
-                    // Recreate rows for filtered results
+                    // Recreate grid cells for filtered results
                     let workspace_class = class!(NSWorkspace);
                     let workspace: id = msg_send![workspace_class, sharedWorkspace];
-                    let row_height = 44.0;
-                    let icon_size = 32.0;
+                    let grid_columns = 5.0;
+                    let cell_width = 120.0;
+                    let cell_height = 120.0;
+                    let icon_size = 64.0;
+                    let cell_spacing = 12.0;
                     let frame: NSRect = msg_send![results_view, frame];
-                    let container_height = frame.size.height;
+
+                    // Resize results_view to fit all items in grid
+                    let num_items = filtered.len();
+                    let num_rows = ((num_items as f64) / grid_columns).ceil();
+                    let new_height = (num_rows * (cell_height + cell_spacing)).max(frame.size.height);
+                    let new_frame = NSRect::new(
+                        NSPoint::new(0.0, 0.0),
+                        NSSize::new(frame.size.width, new_height)
+                    );
+                    let _: () = msg_send![results_view, setFrame: new_frame];
+
+                    let container_height = new_height;
                     let selected_idx = *data.selected_index.lock().unwrap();
 
+                    let row_class = create_row_view_class();
+
                     for (index, result) in filtered.iter().enumerate() {
-                        let y_pos = container_height - ((index + 1) as f64 * row_height);
+                        // Calculate grid position
+                        let col = (index as f64) % grid_columns;
+                        let row = ((index as f64) / grid_columns).floor();
 
-                        // Create row
-                        let row_frame = NSRect::new(
-                            NSPoint::new(0.0, y_pos),
-                            NSSize::new(frame.size.width, row_height),
+                        let x_pos = col * (cell_width + cell_spacing);
+                        let y_pos = container_height - ((row + 1.0) * (cell_height + cell_spacing));
+
+                        // Create cell
+                        let cell_frame = NSRect::new(
+                            NSPoint::new(x_pos, y_pos),
+                            NSSize::new(cell_width, cell_height),
                         );
-                        let row_view: id = msg_send![class!(NSView), alloc];
-                        let row_view: id = msg_send![row_view, initWithFrame: row_frame];
-                        let _: () = msg_send![row_view, setWantsLayer: 1u32];
+                        let cell_view: id = msg_send![row_class, alloc];
+                        let cell_view: id = msg_send![cell_view, initWithFrame: cell_frame];
+                        let _: () = msg_send![cell_view, setWantsLayer: 1u32];
 
-                        // Highlight selected row
+                        (*cell_view).set_ivar("rowIndex", index as isize);
+
+                        let cell_layer: id = msg_send![cell_view, layer];
+                        let _: () = msg_send![cell_layer, setCornerRadius: 10.0f64];
                         if index == selected_idx {
-                            let row_layer: id = msg_send![row_view, layer];
                             let cg_color: id = msg_send![selection_bg, CGColor];
-                            let _: () = msg_send![row_layer, setBackgroundColor: cg_color];
-                            let _: () = msg_send![row_layer, setCornerRadius: 8.0f64];
+                            let _: () = msg_send![cell_layer, setBackgroundColor: cg_color];
                         }
 
-                        // Icon (only for Apps and Files)
+                        // Icon centered at top
                         if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                             let path_str = NSString::alloc(nil).init_str(&result.path);
                             let icon: id = msg_send![workspace, iconForFile: path_str];
+                            let icon_x = (cell_width - icon_size) / 2.0;
+                            let icon_y = cell_height - icon_size - 8.0;
                             let icon_frame = NSRect::new(
-                                NSPoint::new(12.0, (row_height - icon_size) / 2.0),
+                                NSPoint::new(icon_x, icon_y),
                                 NSSize::new(icon_size, icon_size),
                             );
                             let icon_view: id = msg_send![class!(NSImageView), alloc];
                             let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                             let _: () = msg_send![icon_view, setImage: icon];
-                            let _: () = msg_send![row_view, addSubview: icon_view];
+                            let _: () = msg_send![cell_view, addSubview: icon_view];
                         }
 
-                        // Label
+                        // Label centered below
                         let label_frame = NSRect::new(
-                            NSPoint::new(56.0, (row_height - 20.0) / 2.0),
-                            NSSize::new(frame.size.width - 68.0, 20.0),
+                            NSPoint::new(4.0, 8.0),
+                            NSSize::new(cell_width - 8.0, 28.0),
                         );
                         let label: id = msg_send![class!(NSTextField), alloc];
                         let label: id = msg_send![label, initWithFrame: label_frame];
@@ -178,16 +204,30 @@ fn create_text_field_delegate_class() -> *const Class {
                         let _: () = msg_send![label, setSelectable: 0u32];
                         let _: () = msg_send![label, setBordered: 0u32];
                         let _: () = msg_send![label, setDrawsBackground: 0u32];
+                        let _: () = msg_send![label, setAlignment: 1i64];
                         let text_color = if index == selected_idx { selection_text } else { normal_text };
                         let _: () = msg_send![label, setTextColor: text_color];
                         let font_cls = class!(NSFont);
-                        let font: id = msg_send![font_cls, systemFontOfSize: 15.0f64];
+                        let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
                         let _: () = msg_send![label, setFont: font];
                         let name_str = NSString::alloc(nil).init_str(&result.name);
                         let _: () = msg_send![label, setStringValue: name_str];
+                        let _: () = msg_send![label, setLineBreakMode: 4i64];
 
-                        let _: () = msg_send![row_view, addSubview: label];
-                        let _: () = msg_send![results_view, addSubview: row_view];
+                        let _: () = msg_send![cell_view, addSubview: label];
+                        let _: () = msg_send![results_view, addSubview: cell_view];
+                    }
+
+                    // Scroll to top after filtering
+                    let scroll_view: id = msg_send![results_view, enclosingScrollView];
+                    if scroll_view != nil {
+                        let clip_view: id = msg_send![scroll_view, contentView];
+                        let clip_bounds: NSRect = msg_send![clip_view, bounds];
+                        let doc_frame: NSRect = msg_send![results_view, frame];
+
+                        // Scroll to show the top of the document (highest y values)
+                        let scroll_point = NSPoint::new(0.0, (doc_frame.size.height - clip_bounds.size.height).max(0.0));
+                        let _: () = msg_send![results_view, scrollPoint: scroll_point];
                     }
                 }
             }
@@ -275,6 +315,7 @@ fn create_text_field_delegate_class() -> *const Class {
                             let results_view = data.results_view.0;
                             let filtered = data.filtered.lock().unwrap().clone();
                             let selected_index = *data.selected_index.lock().unwrap();
+                            let config = data.config.clone();
                             drop(data_map);
 
                             // Clear subviews
@@ -287,56 +328,80 @@ fn create_text_field_delegate_class() -> *const Class {
                             }
 
                             // Rebuild rows
-                            let selection_bg = Config::hex_to_nscolor("#d946ef");
-                            let selection_text = Config::hex_to_nscolor("#ffffff");
-                            let normal_text = Config::hex_to_nscolor("#e0e0e0");
+                            let row_class = create_row_view_class();
+                            let selection_bg = Config::hex_to_nscolor(&config.colors.selection_background);
+                            let selection_text = Config::hex_to_nscolor(&config.colors.selection_text);
+                            let normal_text = Config::hex_to_nscolor(&config.colors.text);
                             let workspace_class = class!(NSWorkspace);
                             let workspace: id = msg_send![workspace_class, sharedWorkspace];
-                            let row_height = 44.0;
-                            let icon_size = 32.0;
+                            let grid_columns = 5.0;
+                            let cell_width = 120.0;
+                            let cell_height = 120.0;
+                            let icon_size = 64.0;
+                            let cell_spacing = 12.0;
                             let frame: NSRect = msg_send![results_view, frame];
-                            let container_height = frame.size.height;
+
+                            // Resize results_view to fit all items in grid
+                            let num_items = filtered.len();
+                            let num_rows = ((num_items as f64) / grid_columns).ceil();
+                            let new_height = (num_rows * (cell_height + cell_spacing)).max(frame.size.height);
+                            let new_frame = NSRect::new(
+                                NSPoint::new(0.0, 0.0),
+                                NSSize::new(frame.size.width, new_height)
+                            );
+                            let _: () = msg_send![results_view, setFrame: new_frame];
+
+                            let container_height = new_height;
 
                             for (index, result) in filtered.iter().enumerate() {
-                                let y_pos = container_height - ((index + 1) as f64 * row_height);
-                                let row_frame = NSRect::new(NSPoint::new(0.0, y_pos), NSSize::new(frame.size.width, row_height));
-                                let row_view: id = msg_send![class!(NSView), alloc];
-                                let row_view: id = msg_send![row_view, initWithFrame: row_frame];
-                                let _: () = msg_send![row_view, setWantsLayer: 1u32];
+                                let col = (index as f64) % grid_columns;
+                                let row = ((index as f64) / grid_columns).floor();
+                                let x_pos = col * (cell_width + cell_spacing);
+                                let y_pos = container_height - ((row + 1.0) * (cell_height + cell_spacing));
+                                let cell_frame = NSRect::new(NSPoint::new(x_pos, y_pos), NSSize::new(cell_width, cell_height));
+                                let cell_view: id = msg_send![row_class, alloc];
+                                let cell_view: id = msg_send![cell_view, initWithFrame: cell_frame];
+                                let _: () = msg_send![cell_view, setWantsLayer: 1u32];
 
+                                (*cell_view).set_ivar("rowIndex", index as isize);
+
+                                let cell_layer: id = msg_send![cell_view, layer];
+                                let _: () = msg_send![cell_layer, setCornerRadius: 10.0f64];
                                 if index == selected_index {
-                                    let row_layer: id = msg_send![row_view, layer];
                                     let cg_color: id = msg_send![selection_bg, CGColor];
-                                    let _: () = msg_send![row_layer, setBackgroundColor: cg_color];
-                                    let _: () = msg_send![row_layer, setCornerRadius: 8.0f64];
+                                    let _: () = msg_send![cell_layer, setBackgroundColor: cg_color];
                                 }
 
                                 if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                                     let path_str = NSString::alloc(nil).init_str(&result.path);
                                     let icon: id = msg_send![workspace, iconForFile: path_str];
-                                    let icon_frame = NSRect::new(NSPoint::new(12.0, (row_height - icon_size) / 2.0), NSSize::new(icon_size, icon_size));
+                                    let icon_x = (cell_width - icon_size) / 2.0;
+                                    let icon_y = cell_height - icon_size - 8.0;
+                                    let icon_frame = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(icon_size, icon_size));
                                     let icon_view: id = msg_send![class!(NSImageView), alloc];
                                     let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                                     let _: () = msg_send![icon_view, setImage: icon];
-                                    let _: () = msg_send![row_view, addSubview: icon_view];
+                                    let _: () = msg_send![cell_view, addSubview: icon_view];
                                 }
 
-                                let label_frame = NSRect::new(NSPoint::new(56.0, (row_height - 20.0) / 2.0), NSSize::new(frame.size.width - 68.0, 20.0));
+                                let label_frame = NSRect::new(NSPoint::new(4.0, 8.0), NSSize::new(cell_width - 8.0, 28.0));
                                 let label: id = msg_send![class!(NSTextField), alloc];
                                 let label: id = msg_send![label, initWithFrame: label_frame];
                                 let _: () = msg_send![label, setEditable: 0u32];
                                 let _: () = msg_send![label, setSelectable: 0u32];
                                 let _: () = msg_send![label, setBordered: 0u32];
                                 let _: () = msg_send![label, setDrawsBackground: 0u32];
+                                let _: () = msg_send![label, setAlignment: 1i64];
                                 let text_color = if index == selected_index { selection_text } else { normal_text };
                                 let _: () = msg_send![label, setTextColor: text_color];
                                 let font_cls = class!(NSFont);
-                                let font: id = msg_send![font_cls, systemFontOfSize: 15.0f64];
+                                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
                                 let _: () = msg_send![label, setFont: font];
                                 let name_str = NSString::alloc(nil).init_str(&result.name);
                                 let _: () = msg_send![label, setStringValue: name_str];
-                                let _: () = msg_send![row_view, addSubview: label];
-                                let _: () = msg_send![results_view, addSubview: row_view];
+                                let _: () = msg_send![label, setLineBreakMode: 4i64];
+                                let _: () = msg_send![cell_view, addSubview: label];
+                                let _: () = msg_send![results_view, addSubview: cell_view];
                             }
                         }
                         return YES as u8;
@@ -361,6 +426,7 @@ fn create_text_field_delegate_class() -> *const Class {
                             let results_view = data.results_view.0;
                             let filtered = data.filtered.lock().unwrap().clone();
                             let selected_index = *data.selected_index.lock().unwrap();
+                            let config = data.config.clone();
                             drop(data_map);
 
                             // Clear subviews
@@ -373,56 +439,80 @@ fn create_text_field_delegate_class() -> *const Class {
                             }
 
                             // Rebuild rows
-                            let selection_bg = Config::hex_to_nscolor("#d946ef");
-                            let selection_text = Config::hex_to_nscolor("#ffffff");
-                            let normal_text = Config::hex_to_nscolor("#e0e0e0");
+                            let row_class = create_row_view_class();
+                            let selection_bg = Config::hex_to_nscolor(&config.colors.selection_background);
+                            let selection_text = Config::hex_to_nscolor(&config.colors.selection_text);
+                            let normal_text = Config::hex_to_nscolor(&config.colors.text);
                             let workspace_class = class!(NSWorkspace);
                             let workspace: id = msg_send![workspace_class, sharedWorkspace];
-                            let row_height = 44.0;
-                            let icon_size = 32.0;
+                            let grid_columns = 5.0;
+                            let cell_width = 120.0;
+                            let cell_height = 120.0;
+                            let icon_size = 64.0;
+                            let cell_spacing = 12.0;
                             let frame: NSRect = msg_send![results_view, frame];
-                            let container_height = frame.size.height;
+
+                            // Resize results_view to fit all items in grid
+                            let num_items = filtered.len();
+                            let num_rows = ((num_items as f64) / grid_columns).ceil();
+                            let new_height = (num_rows * (cell_height + cell_spacing)).max(frame.size.height);
+                            let new_frame = NSRect::new(
+                                NSPoint::new(0.0, 0.0),
+                                NSSize::new(frame.size.width, new_height)
+                            );
+                            let _: () = msg_send![results_view, setFrame: new_frame];
+
+                            let container_height = new_height;
 
                             for (index, result) in filtered.iter().enumerate() {
-                                let y_pos = container_height - ((index + 1) as f64 * row_height);
-                                let row_frame = NSRect::new(NSPoint::new(0.0, y_pos), NSSize::new(frame.size.width, row_height));
-                                let row_view: id = msg_send![class!(NSView), alloc];
-                                let row_view: id = msg_send![row_view, initWithFrame: row_frame];
-                                let _: () = msg_send![row_view, setWantsLayer: 1u32];
+                                let col = (index as f64) % grid_columns;
+                                let row = ((index as f64) / grid_columns).floor();
+                                let x_pos = col * (cell_width + cell_spacing);
+                                let y_pos = container_height - ((row + 1.0) * (cell_height + cell_spacing));
+                                let cell_frame = NSRect::new(NSPoint::new(x_pos, y_pos), NSSize::new(cell_width, cell_height));
+                                let cell_view: id = msg_send![row_class, alloc];
+                                let cell_view: id = msg_send![cell_view, initWithFrame: cell_frame];
+                                let _: () = msg_send![cell_view, setWantsLayer: 1u32];
 
+                                (*cell_view).set_ivar("rowIndex", index as isize);
+
+                                let cell_layer: id = msg_send![cell_view, layer];
+                                let _: () = msg_send![cell_layer, setCornerRadius: 10.0f64];
                                 if index == selected_index {
-                                    let row_layer: id = msg_send![row_view, layer];
                                     let cg_color: id = msg_send![selection_bg, CGColor];
-                                    let _: () = msg_send![row_layer, setBackgroundColor: cg_color];
-                                    let _: () = msg_send![row_layer, setCornerRadius: 8.0f64];
+                                    let _: () = msg_send![cell_layer, setBackgroundColor: cg_color];
                                 }
 
                                 if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                                     let path_str = NSString::alloc(nil).init_str(&result.path);
                                     let icon: id = msg_send![workspace, iconForFile: path_str];
-                                    let icon_frame = NSRect::new(NSPoint::new(12.0, (row_height - icon_size) / 2.0), NSSize::new(icon_size, icon_size));
+                                    let icon_x = (cell_width - icon_size) / 2.0;
+                                    let icon_y = cell_height - icon_size - 8.0;
+                                    let icon_frame = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(icon_size, icon_size));
                                     let icon_view: id = msg_send![class!(NSImageView), alloc];
                                     let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                                     let _: () = msg_send![icon_view, setImage: icon];
-                                    let _: () = msg_send![row_view, addSubview: icon_view];
+                                    let _: () = msg_send![cell_view, addSubview: icon_view];
                                 }
 
-                                let label_frame = NSRect::new(NSPoint::new(56.0, (row_height - 20.0) / 2.0), NSSize::new(frame.size.width - 68.0, 20.0));
+                                let label_frame = NSRect::new(NSPoint::new(4.0, 8.0), NSSize::new(cell_width - 8.0, 28.0));
                                 let label: id = msg_send![class!(NSTextField), alloc];
                                 let label: id = msg_send![label, initWithFrame: label_frame];
                                 let _: () = msg_send![label, setEditable: 0u32];
                                 let _: () = msg_send![label, setSelectable: 0u32];
                                 let _: () = msg_send![label, setBordered: 0u32];
                                 let _: () = msg_send![label, setDrawsBackground: 0u32];
+                                let _: () = msg_send![label, setAlignment: 1i64];
                                 let text_color = if index == selected_index { selection_text } else { normal_text };
                                 let _: () = msg_send![label, setTextColor: text_color];
                                 let font_cls = class!(NSFont);
-                                let font: id = msg_send![font_cls, systemFontOfSize: 15.0f64];
+                                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
                                 let _: () = msg_send![label, setFont: font];
                                 let name_str = NSString::alloc(nil).init_str(&result.name);
                                 let _: () = msg_send![label, setStringValue: name_str];
-                                let _: () = msg_send![row_view, addSubview: label];
-                                let _: () = msg_send![results_view, addSubview: row_view];
+                                let _: () = msg_send![label, setLineBreakMode: 4i64];
+                                let _: () = msg_send![cell_view, addSubview: label];
+                                let _: () = msg_send![results_view, addSubview: cell_view];
                             }
                         }
                         return YES as u8;
@@ -504,12 +594,12 @@ fn create_button_action_class() -> *const Class {
                             for (idx, pill_btn) in data.pill_buttons.iter().enumerate() {
                                 let btn = pill_btn.0;
                                 if idx == tag as usize {
-                                    // Active pill - magenta background
-                                    let active_color = Config::hex_to_nscolor("#d946ef");
+                                    // Active pill - selection background color
+                                    let active_color = Config::hex_to_nscolor(&data.config.colors.selection_background);
                                     let _: () = msg_send![btn, setBackgroundColor: active_color];
                                 } else {
-                                    // Inactive pill - dark background
-                                    let inactive_color = Config::hex_to_nscolor("#2a2640");
+                                    // Inactive pill - input background color
+                                    let inactive_color = Config::hex_to_nscolor(&data.config.colors.input_background);
                                     let _: () = msg_send![btn, setBackgroundColor: inactive_color];
                                 }
                             }
@@ -558,6 +648,7 @@ fn create_button_action_class() -> *const Class {
 
                             // Rebuild UI
                             let results_view = data.results_view.0;
+                            let config = data.config.clone();
                             loop {
                                 let subviews: id = msg_send![results_view, subviews];
                                 let count: usize = msg_send![subviews, count];
@@ -566,56 +657,92 @@ fn create_button_action_class() -> *const Class {
                                 let _: () = msg_send![subview, removeFromSuperview];
                             }
 
-                            let selection_bg = Config::hex_to_nscolor("#d946ef");
-                            let selection_text = Config::hex_to_nscolor("#ffffff");
-                            let normal_text = Config::hex_to_nscolor("#e0e0e0");
+                            let selection_bg = Config::hex_to_nscolor(&config.colors.selection_background);
+                            let selection_text = Config::hex_to_nscolor(&config.colors.selection_text);
+                            let normal_text = Config::hex_to_nscolor(&config.colors.text);
                             let workspace_class = class!(NSWorkspace);
                             let workspace: id = msg_send![workspace_class, sharedWorkspace];
-                            let row_height = 44.0;
-                            let icon_size = 32.0;
+                            let grid_columns = 5.0;
+                            let cell_width = 120.0;
+                            let cell_height = 120.0;
+                            let icon_size = 64.0;
+                            let cell_spacing = 12.0;
                             let frame: NSRect = msg_send![results_view, frame];
-                            let container_height = frame.size.height;
+
+                            // Resize results_view to fit all items in grid
+                            let num_items = filtered.len();
+                            let num_rows = ((num_items as f64) / grid_columns).ceil();
+                            let new_height = (num_rows * (cell_height + cell_spacing)).max(frame.size.height);
+                            let new_frame = NSRect::new(
+                                NSPoint::new(0.0, 0.0),
+                                NSSize::new(frame.size.width, new_height)
+                            );
+                            let _: () = msg_send![results_view, setFrame: new_frame];
+
+                            let container_height = new_height;
+                            let row_class = create_row_view_class();
 
                             for (index, result) in filtered.iter().enumerate() {
-                                let y_pos = container_height - ((index + 1) as f64 * row_height);
-                                let row_frame = NSRect::new(NSPoint::new(0.0, y_pos), NSSize::new(frame.size.width, row_height));
-                                let row_view: id = msg_send![class!(NSView), alloc];
-                                let row_view: id = msg_send![row_view, initWithFrame: row_frame];
-                                let _: () = msg_send![row_view, setWantsLayer: 1u32];
+                                let col = (index as f64) % grid_columns;
+                                let row = ((index as f64) / grid_columns).floor();
+                                let x_pos = col * (cell_width + cell_spacing);
+                                let y_pos = container_height - ((row + 1.0) * (cell_height + cell_spacing));
+                                let cell_frame = NSRect::new(NSPoint::new(x_pos, y_pos), NSSize::new(cell_width, cell_height));
+                                let cell_view: id = msg_send![row_class, alloc];
+                                let cell_view: id = msg_send![cell_view, initWithFrame: cell_frame];
+                                let _: () = msg_send![cell_view, setWantsLayer: 1u32];
 
+                                (*cell_view).set_ivar("rowIndex", index as isize);
+
+                                let cell_layer: id = msg_send![cell_view, layer];
+                                let _: () = msg_send![cell_layer, setCornerRadius: 10.0f64];
                                 if index == 0 {
-                                    let row_layer: id = msg_send![row_view, layer];
                                     let cg_color: id = msg_send![selection_bg, CGColor];
-                                    let _: () = msg_send![row_layer, setBackgroundColor: cg_color];
-                                    let _: () = msg_send![row_layer, setCornerRadius: 8.0f64];
+                                    let _: () = msg_send![cell_layer, setBackgroundColor: cg_color];
                                 }
 
                                 if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                                     let path_str = NSString::alloc(nil).init_str(&result.path);
                                     let icon: id = msg_send![workspace, iconForFile: path_str];
-                                    let icon_frame = NSRect::new(NSPoint::new(12.0, (row_height - icon_size) / 2.0), NSSize::new(icon_size, icon_size));
+                                    let icon_x = (cell_width - icon_size) / 2.0;
+                                    let icon_y = cell_height - icon_size - 8.0;
+                                    let icon_frame = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(icon_size, icon_size));
                                     let icon_view: id = msg_send![class!(NSImageView), alloc];
                                     let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                                     let _: () = msg_send![icon_view, setImage: icon];
-                                    let _: () = msg_send![row_view, addSubview: icon_view];
+                                    let _: () = msg_send![cell_view, addSubview: icon_view];
                                 }
 
-                                let label_frame = NSRect::new(NSPoint::new(56.0, (row_height - 20.0) / 2.0), NSSize::new(frame.size.width - 68.0, 20.0));
+                                let label_frame = NSRect::new(NSPoint::new(4.0, 8.0), NSSize::new(cell_width - 8.0, 28.0));
                                 let label: id = msg_send![class!(NSTextField), alloc];
                                 let label: id = msg_send![label, initWithFrame: label_frame];
                                 let _: () = msg_send![label, setEditable: 0u32];
                                 let _: () = msg_send![label, setSelectable: 0u32];
                                 let _: () = msg_send![label, setBordered: 0u32];
                                 let _: () = msg_send![label, setDrawsBackground: 0u32];
+                                let _: () = msg_send![label, setAlignment: 1i64];
                                 let text_color = if index == 0 { selection_text } else { normal_text };
                                 let _: () = msg_send![label, setTextColor: text_color];
                                 let font_cls = class!(NSFont);
-                                let font: id = msg_send![font_cls, systemFontOfSize: 15.0f64];
+                                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
                                 let _: () = msg_send![label, setFont: font];
                                 let name_str = NSString::alloc(nil).init_str(&result.name);
                                 let _: () = msg_send![label, setStringValue: name_str];
-                                let _: () = msg_send![row_view, addSubview: label];
-                                let _: () = msg_send![results_view, addSubview: row_view];
+                                let _: () = msg_send![label, setLineBreakMode: 4i64];
+                                let _: () = msg_send![cell_view, addSubview: label];
+                                let _: () = msg_send![results_view, addSubview: cell_view];
+                            }
+
+                            // Scroll to top after mode change
+                            let scroll_view: id = msg_send![results_view, enclosingScrollView];
+                            if scroll_view != nil {
+                                let clip_view: id = msg_send![scroll_view, contentView];
+                                let clip_bounds: NSRect = msg_send![clip_view, bounds];
+                                let doc_frame: NSRect = msg_send![results_view, frame];
+
+                                // Scroll to show the top of the document (highest y values)
+                                let scroll_point = NSPoint::new(0.0, (doc_frame.size.height - clip_bounds.size.height).max(0.0));
+                                let _: () = msg_send![results_view, scrollPoint: scroll_point];
                             }
                         }
                     }
@@ -636,6 +763,184 @@ fn create_button_action_class() -> *const Class {
     }
 }
 
+// Create a custom row view class that handles hover and click
+fn create_row_view_class() -> *const Class {
+    unsafe {
+        ROW_VIEW_CLASS_INIT.call_once(|| {
+            let superclass = class!(NSView);
+            let mut decl = ClassDecl::new("ClickableRowView", superclass).unwrap();
+
+            // Store row index as an ivar
+            decl.add_ivar::<isize>("rowIndex");
+
+            // Mouse entered - highlight the row
+            extern "C" fn mouse_entered(this: &mut Object, _: Sel, _event: id) {
+                unsafe {
+                    let row_index: isize = *this.get_ivar("rowIndex");
+                    println!("Mouse entered row: {}", row_index);
+
+                    // Get the window and search field delegate to update selection
+                    let window: id = msg_send![this, window];
+                    if window == nil {
+                        return;
+                    }
+
+                    let content_view: id = msg_send![window, contentView];
+                    let subviews: id = msg_send![content_view, subviews];
+                    let count: usize = msg_send![subviews, count];
+
+                    // Find the text field
+                    let mut text_field: id = nil;
+                    for i in 0..count {
+                        let view: id = msg_send![subviews, objectAtIndex: i];
+                        let class_name: id = msg_send![view, className];
+                        let cstr: *const i8 = msg_send![class_name, UTF8String];
+                        let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy();
+                        if name == "NSTextField" {
+                            text_field = view;
+                            break;
+                        }
+                    }
+
+                    if text_field != nil {
+                        let delegate: id = msg_send![text_field, delegate];
+                        let delegate_ptr = delegate as usize;
+
+                        let mut data_map = DELEGATE_DATA.lock().unwrap();
+                        if let Some(data) = data_map.as_mut().and_then(|m| m.get_mut(&delegate_ptr)) {
+                            // Update selected index to this row
+                            *data.selected_index.lock().unwrap() = row_index as usize;
+
+                            // Trigger UI rebuild to show highlight
+                            let search_field = data.search_field.0;
+                            let text: id = msg_send![search_field, stringValue];
+                            let _: () = msg_send![search_field, setStringValue: text];
+                        }
+                    }
+                }
+            }
+
+            // Mouse exited - currently not needed but defined for tracking
+            extern "C" fn mouse_exited(_this: &mut Object, _: Sel, _event: id) {
+                // No-op for now - selection is handled by keyboard/mouse position
+            }
+
+            // Mouse down - launch the app
+            extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
+                unsafe {
+                    let row_index: isize = *this.get_ivar("rowIndex");
+                    println!("Mouse clicked row: {}", row_index);
+
+                    // Get delegate data and launch the selected item
+                    let window: id = msg_send![this, window];
+                    if window == nil {
+                        return;
+                    }
+
+                    let content_view: id = msg_send![window, contentView];
+                    let subviews: id = msg_send![content_view, subviews];
+                    let count: usize = msg_send![subviews, count];
+
+                    // Find the text field
+                    let mut text_field: id = nil;
+                    for i in 0..count {
+                        let view: id = msg_send![subviews, objectAtIndex: i];
+                        let class_name: id = msg_send![view, className];
+                        let cstr: *const i8 = msg_send![class_name, UTF8String];
+                        let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy();
+                        if name == "NSTextField" {
+                            text_field = view;
+                            break;
+                        }
+                    }
+
+                    if text_field != nil {
+                        let delegate: id = msg_send![text_field, delegate];
+                        let delegate_ptr = delegate as usize;
+
+                        let data_map = DELEGATE_DATA.lock().unwrap();
+                        if let Some(data) = data_map.as_ref().and_then(|m| m.get(&delegate_ptr)) {
+                            let filtered = data.filtered.lock().unwrap();
+                            if let Some(result) = filtered.get(row_index as usize) {
+                                println!("Launching: {} (type: {:?})", result.name, result.result_type);
+
+                                match result.result_type {
+                                    SearchMode::Apps | SearchMode::Files => {
+                                        let workspace_class = class!(NSWorkspace);
+                                        let workspace: id = msg_send![workspace_class, sharedWorkspace];
+                                        let path_string = NSString::alloc(nil).init_str(&result.path);
+                                        let _: id = msg_send![workspace, openFile: path_string];
+                                    }
+                                    SearchMode::Run => {
+                                        std::process::Command::new("sh")
+                                            .arg("-c")
+                                            .arg(&result.path)
+                                            .spawn()
+                                            .ok();
+                                    }
+                                }
+
+                                // Close window after launching
+                                let app = NSApp();
+                                let _: () = msg_send![app, terminate: nil];
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update tracking areas to receive mouse events
+            extern "C" fn update_tracking_areas(this: &mut Object, _: Sel) {
+                unsafe {
+                    // No need to call super for this simple case
+
+                    // Remove old tracking areas
+                    let tracking_areas: id = msg_send![this, trackingAreas];
+                    let count: usize = msg_send![tracking_areas, count];
+                    for i in 0..count {
+                        let area: id = msg_send![tracking_areas, objectAtIndex: i];
+                        let _: () = msg_send![this, removeTrackingArea: area];
+                    }
+
+                    // Add new tracking area
+                    let bounds: NSRect = msg_send![this, bounds];
+                    // NSTrackingMouseEnteredAndExited = 0x01
+                    // NSTrackingActiveAlways = 0x80
+                    // NSTrackingInVisibleRect = 0x200
+                    let options: usize = 0x01 | 0x80 | 0x200;
+                    let tracking_area: id = msg_send![class!(NSTrackingArea), alloc];
+                    let this_ptr = this as *mut Object as id;
+                    let tracking_area: id = msg_send![tracking_area, initWithRect:bounds options:options owner:this_ptr userInfo:nil];
+                    let _: () = msg_send![this, addTrackingArea: tracking_area];
+                }
+            }
+
+            unsafe {
+                decl.add_method(
+                    sel!(mouseEntered:),
+                    mouse_entered as extern "C" fn(&mut Object, Sel, id),
+                );
+                decl.add_method(
+                    sel!(mouseExited:),
+                    mouse_exited as extern "C" fn(&mut Object, Sel, id),
+                );
+                decl.add_method(
+                    sel!(mouseDown:),
+                    mouse_down as extern "C" fn(&mut Object, Sel, id),
+                );
+                decl.add_method(
+                    sel!(updateTrackingAreas),
+                    update_tracking_areas as extern "C" fn(&mut Object, Sel),
+                );
+            }
+
+            decl.register();
+        });
+
+        Class::get("ClickableRowView").unwrap()
+    }
+}
+
 pub struct RofiUI {
     _search_field: id,
     _results_view: id,
@@ -653,178 +958,223 @@ impl RofiUI {
             let apps = Arc::new(Mutex::new(apps.clone()));
             let filtered = Arc::new(Mutex::new(apps.lock().unwrap().clone()));
 
-            // Modern 2026 UI: Create search field with better spacing
-            let search_padding = 24.0;
-            let search_height = 44.0;
+            // Get actual window dimensions
+            let window_frame: NSRect = msg_send![window, frame];
+            let window_width = window_frame.size.width;
+            let window_height = window_frame.size.height;
+
+            // Modern UI: Create search container with icon
+            let search_padding = 0.0; // Full width
+            let search_height = 60.0; // Taller like reference
+            let search_container_frame = NSRect::new(
+                NSPoint::new(search_padding, window_height - search_height - search_padding),
+                NSSize::new(window_width - (search_padding * 2.0), search_height),
+            );
+
+            // Create search container view
+            let search_container: id = msg_send![class!(NSView), alloc];
+            let search_container: id = msg_send![search_container, initWithFrame: search_container_frame];
+            let _: () = msg_send![search_container, setWantsLayer: 1u32];
+
+            // Background for search container
+            let input_bg_color = Config::hex_to_nscolor(&config.colors.input_background);
+            let _: () = msg_send![search_container, setBackgroundColor: input_bg_color];
+            let container_layer: id = msg_send![search_container, layer];
+            let _: () = msg_send![container_layer, setCornerRadius: 0.0f64]; // No rounding for full width
+
+            // Add search icon (magnifying glass using Unicode)
+            let icon_size = 20.0;
+            let icon_x = 16.0;
+            let icon_y = (search_height - icon_size) / 2.0;
+            let icon_label_frame = NSRect::new(
+                NSPoint::new(icon_x, icon_y),
+                NSSize::new(icon_size, icon_size),
+            );
+            let icon_label: id = msg_send![class!(NSTextField), alloc];
+            let icon_label: id = msg_send![icon_label, initWithFrame: icon_label_frame];
+            let _: () = msg_send![icon_label, setEditable: 0u32];
+            let _: () = msg_send![icon_label, setSelectable: 0u32];
+            let _: () = msg_send![icon_label, setBordered: 0u32];
+            let _: () = msg_send![icon_label, setDrawsBackground: 0u32];
+            let icon_text = NSString::alloc(nil).init_str("\u{1F50D}"); // Magnifying glass emoji
+            let _: () = msg_send![icon_label, setStringValue: icon_text];
+            let font_cls = class!(NSFont);
+            let icon_font: id = msg_send![font_cls, systemFontOfSize: 18.0f64];
+            let _: () = msg_send![icon_label, setFont: icon_font];
+            let icon_color = Config::hex_to_nscolor("#ffffff");
+            let _: () = msg_send![icon_label, setTextColor: icon_color];
+            let _: () = msg_send![icon_label, setAlignment: 1i64]; // Center
+            let _: () = msg_send![search_container, addSubview: icon_label];
+
+            // Create text field starting after icon
+            let text_field_x = icon_x + icon_size + 8.0;
+            let text_field_width = window_width - text_field_x - 16.0;
+            let text_field_height = 30.0;
+            let text_field_y = (search_height - text_field_height) / 2.0;
             let search_frame = NSRect::new(
-                NSPoint::new(search_padding, config.window.height as f64 - search_height - search_padding),
-                NSSize::new(config.window.width as f64 - (search_padding * 2.0), search_height),
+                NSPoint::new(text_field_x, text_field_y),
+                NSSize::new(text_field_width, text_field_height),
             );
 
             let search_field_alloc = NSTextField::alloc(nil);
             let search_field: id = msg_send![search_field_alloc, initWithFrame: search_frame];
-            let placeholder = NSString::alloc(nil).init_str("Search applications...");
-            let _: () = msg_send![search_field, setPlaceholderString: placeholder];
-            let _: () = msg_send![search_field, setBezeled: 0u32]; // Remove bezel
-            let _: () = msg_send![search_field, setBordered: 0u32]; // Remove border
+
+            // Create placeholder
+            let placeholder_text = NSString::alloc(nil).init_str("Search");
+            let placeholder_color = Config::hex_to_nscolor("#ffffff");
+            let attrs_dict: id = msg_send![class!(NSMutableDictionary), new];
+            let foreground_key = NSString::alloc(nil).init_str("NSColor");
+            let _: () = msg_send![attrs_dict, setObject:placeholder_color forKey:foreground_key];
+            let placeholder_attr: id = msg_send![class!(NSAttributedString), alloc];
+            let placeholder_attr: id = msg_send![placeholder_attr, initWithString:placeholder_text attributes:attrs_dict];
+            let _: () = msg_send![search_field, setPlaceholderAttributedString: placeholder_attr];
+
+            let _: () = msg_send![search_field, setBezeled: 0u32];
+            let _: () = msg_send![search_field, setBordered: 0u32];
             let _: () = msg_send![search_field, setEditable: 1u32];
             let _: () = msg_send![search_field, setSelectable: 1u32];
-            let _: () = msg_send![search_field, setDrawsBackground: 1u32];
-            let _: () = msg_send![search_field, setFocusRingType: 0u32]; // Remove focus ring
+            let _: () = msg_send![search_field, setDrawsBackground: 0u32]; // Transparent
+            let _: () = msg_send![search_field, setFocusRingType: 0u32];
 
-            // Modern dark colors
-            let input_bg_color = Config::hex_to_nscolor(&config.colors.input_background);
-            let _: () = msg_send![search_field, setBackgroundColor: input_bg_color];
-            let _: () = msg_send![search_field, setTextColor: config.get_text_color()];
+            // White text on tan background
+            let text_color = Config::hex_to_nscolor("#ffffff");
+            let _: () = msg_send![search_field, setTextColor: text_color];
 
-            // Add rounded corners to search field
-            let _: () = msg_send![search_field, setWantsLayer: 1u32];
-            let search_layer: id = msg_send![search_field, layer];
-            let _: () = msg_send![search_layer, setCornerRadius: 10.0f64];
-            let _: () = msg_send![search_layer, setMasksToBounds: 1u32];
-
-            // Set font - larger for readability
+            // Set font for search field
             let font_cls = class!(NSFont);
-            let font: id = msg_send![font_cls, systemFontOfSize: 18.0f64];
+            let font_name = NSString::alloc(nil).init_str(&config.font.family);
+            let font_size = 16.0f64;
+            let font: id = msg_send![font_cls, fontWithName:font_name size:font_size];
+            let font = if font == nil {
+                msg_send![font_cls, systemFontOfSize: font_size]
+            } else {
+                font
+            };
             let _: () = msg_send![search_field, setFont: font];
 
-            // Add views to window (now using visual effect view as content view)
+            // Configure cell for single-line input
+            let _: () = msg_send![search_field, setAlignment: 0i64];
+            let cell: id = msg_send![search_field, cell];
+            let _: () = msg_send![cell, setUsesSingleLineMode: 1u32];
+            let _: () = msg_send![cell, setScrollable: 1u32];
+            let _: () = msg_send![cell, setLineBreakMode: 4i64];
+            let _: () = msg_send![search_field, setRefusesFirstResponder: 0u32];
+
+            let _: () = msg_send![search_container, addSubview: search_field];
+
+            // Add search container to window
             let content_view: id = msg_send![window, contentView];
-            let _: () = msg_send![content_view, addSubview: search_field];
+            let _: () = msg_send![content_view, addSubview: search_container];
 
-            // Create pill buttons below search field
-            let pill_padding = 24.0;
-            let pill_spacing = 8.0;
-            let pill_height = 32.0;
-            let pill_y = config.window.height as f64 - search_height - pill_padding - 8.0 - pill_height;
-            let pill_width = 80.0;
+            // Pill buttons removed for cleaner UI matching reference design
+            let pill_height = 0.0; // No pill buttons
+            let pill_buttons: Vec<SendId> = Vec::new();
 
-            let button_action_class = create_button_action_class();
-            let button_action: id = msg_send![button_action_class, new];
-
-            let modes = vec!["Apps", "Files", "Run"];
-            let mut pill_buttons = Vec::new();
-
-            for (index, mode) in modes.iter().enumerate() {
-                let x = pill_padding + (index as f64 * (pill_width + pill_spacing));
-                let pill_frame = NSRect::new(
-                    NSPoint::new(x, pill_y),
-                    NSSize::new(pill_width, pill_height),
-                );
-
-                let button: id = msg_send![class!(NSButton), alloc];
-                let button: id = msg_send![button, initWithFrame: pill_frame];
-                let _: () = msg_send![button, setTitle: NSString::alloc(nil).init_str(mode)];
-                let _: () = msg_send![button, setTag: index as isize];
-                let _: () = msg_send![button, setTarget: button_action];
-                let _: () = msg_send![button, setAction: sel!(buttonClicked:)];
-                let _: () = msg_send![button, setBordered: 0u32];
-                let _: () = msg_send![button, setWantsLayer: 1u32];
-
-                let button_layer: id = msg_send![button, layer];
-                let _: () = msg_send![button_layer, setCornerRadius: 16.0f64];
-
-                // First pill (Apps) is active by default
-                if index == 0 {
-                    let active_color = Config::hex_to_nscolor("#d946ef");
-                    let _: () = msg_send![button, setBackgroundColor: active_color];
-                } else {
-                    let inactive_color = Config::hex_to_nscolor("#2a2640");
-                    let _: () = msg_send![button, setBackgroundColor: inactive_color];
-                }
-
-                // Set text color to white
-                let text_color = Config::hex_to_nscolor("#ffffff");
-                let font_cls = class!(NSFont);
-                let font: id = msg_send![font_cls, systemFontOfSize: 13.0f64];
-                let _: () = msg_send![button, setFont: font];
-
-                // NSButton text color is set via attributed string
-                let title: id = msg_send![button, title];
-                let attrs_dict = NSString::alloc(nil).init_str("NSColor");
-                let mut_attrs: id = msg_send![class!(NSMutableDictionary), alloc];
-                let mut_attrs: id = msg_send![mut_attrs, init];
-                let _: () = msg_send![mut_attrs, setObject:text_color forKey:NSString::alloc(nil).init_str("NSForegroundColor")];
-                let attr_string: id = msg_send![class!(NSAttributedString), alloc];
-                let attr_string: id = msg_send![attr_string, initWithString:title attributes:mut_attrs];
-                let _: () = msg_send![button, setAttributedTitle: attr_string];
-
-                let _: () = msg_send![content_view, addSubview: button];
-                pill_buttons.push(SendId(button));
-            }
-
-            // Modern list view with icons - Create container for app rows
+            // Modern grid view with icons - Create container for app cells
             let results_padding = 24.0;
-            let results_top_margin = 16.0;
-            let row_height = 44.0;
-            let icon_size = 32.0;
+            let results_top_margin = 8.0;
+            let grid_columns = 5.0; // 5 apps per row like the reference
+            let cell_width = 120.0; // Width of each grid cell
+            let cell_height = 120.0; // Height of each grid cell (icon + label)
+            let icon_size = 64.0; // Larger icons for grid view
+            let cell_spacing = 12.0; // Spacing between cells
 
             let results_container_frame = NSRect::new(
                 NSPoint::new(results_padding, results_padding),
                 NSSize::new(
-                    config.window.width as f64 - (results_padding * 2.0),
-                    config.window.height as f64 - search_height - pill_height - (results_padding * 3.0) - results_top_margin - 16.0
+                    window_width - (results_padding * 2.0),
+                    window_height - search_height - pill_height - results_padding - results_top_margin - 32.0
                 ),
             );
 
-            // Create a container view for all rows
+            // Create a scroll view for results
+            let scroll_view: id = msg_send![class!(NSScrollView), alloc];
+            let scroll_view: id = msg_send![scroll_view, initWithFrame: results_container_frame];
+            let _: () = msg_send![scroll_view, setHasVerticalScroller: 0u32]; // Hide scrollbar
+            let _: () = msg_send![scroll_view, setHasHorizontalScroller: 0u32];
+            let _: () = msg_send![scroll_view, setBorderType: 0i64]; // NSNoBorder
+            let _: () = msg_send![scroll_view, setDrawsBackground: 0u32];
+            let _: () = msg_send![scroll_view, setAutohidesScrollers: 1u32];
+
+            // Create a container view for all rows (document view of scroll view)
             let results_container: id = msg_send![class!(NSView), alloc];
-            let results_view: id = msg_send![results_container, initWithFrame: results_container_frame];
+            let results_view: id = msg_send![results_container, initWithFrame: NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(results_container_frame.size.width, 1000.0) // Large enough for many items
+            )];
             let _: () = msg_send![results_view, setWantsLayer: 1u32];
+
+            // Set the results view as the document view of the scroll view
+            let _: () = msg_send![scroll_view, setDocumentView: results_view];
 
             // Create rows for first 8 apps with icons
             let workspace_class = class!(NSWorkspace);
             let workspace: id = msg_send![workspace_class, sharedWorkspace];
 
-            // Show 4 random apps initially
+            // Show 15 random apps initially (3 rows x 5 columns)
             use rand::seq::SliceRandom;
             let mut rng = rand::thread_rng();
             let apps_locked = apps.lock().unwrap();
             let mut app_vec: Vec<_> = apps_locked.iter().collect();
             app_vec.shuffle(&mut rng);
             let initial_apps: Vec<SearchResult> = app_vec.into_iter()
-                .take(4)
+                .take(15)
                 .map(|app| SearchResult::new(app.name.clone(), app.path.clone(), SearchMode::Apps))
                 .collect();
             drop(apps_locked);
 
+            let row_class = create_row_view_class();
+
             for (index, result) in initial_apps.iter().enumerate() {
-                let y_pos = results_container_frame.size.height - ((index + 1) as f64 * row_height);
+                // Calculate grid position (column, row)
+                let col = (index as f64) % grid_columns;
+                let row = ((index as f64) / grid_columns).floor();
 
-                // Create row background view
-                let row_frame = NSRect::new(
-                    NSPoint::new(0.0, y_pos),
-                    NSSize::new(results_container_frame.size.width, row_height),
+                // Calculate x, y position for this cell
+                let x_pos = col * (cell_width + cell_spacing);
+                let y_pos = results_container_frame.size.height - ((row + 1.0) * (cell_height + cell_spacing));
+
+                // Create cell background view
+                let cell_frame = NSRect::new(
+                    NSPoint::new(x_pos, y_pos),
+                    NSSize::new(cell_width, cell_height),
                 );
-                let row_view: id = msg_send![class!(NSView), alloc];
-                let row_view: id = msg_send![row_view, initWithFrame: row_frame];
-                let _: () = msg_send![row_view, setWantsLayer: 1u32];
+                let cell_view: id = msg_send![row_class, alloc];
+                let cell_view: id = msg_send![cell_view, initWithFrame: cell_frame];
+                let _: () = msg_send![cell_view, setWantsLayer: 1u32];
 
-                // Highlight first row
+                // Set row index for click/hover handling
+                (*cell_view).set_ivar("rowIndex", index as isize);
+
+                // Highlight first cell
+                let cell_layer: id = msg_send![cell_view, layer];
+                let _: () = msg_send![cell_layer, setCornerRadius: 10.0f64];
                 if index == 0 {
                     let selection_color = config.get_selection_color();
-                    let row_layer: id = msg_send![row_view, layer];
                     let cg_color: id = msg_send![selection_color, CGColor];
-                    let _: () = msg_send![row_layer, setBackgroundColor: cg_color];
-                    let _: () = msg_send![row_layer, setCornerRadius: 8.0f64];
+                    let _: () = msg_send![cell_layer, setBackgroundColor: cg_color];
                 }
 
-                // Load icon
+                // Load icon - centered at top of cell
                 let path_str = NSString::alloc(nil).init_str(&result.path);
                 let icon: id = msg_send![workspace, iconForFile: path_str];
+                let icon_x = (cell_width - icon_size) / 2.0;
+                let icon_y = cell_height - icon_size - 8.0; // 8px from top
                 let icon_frame = NSRect::new(
-                    NSPoint::new(12.0, (row_height - icon_size) / 2.0),
+                    NSPoint::new(icon_x, icon_y),
                     NSSize::new(icon_size, icon_size),
                 );
                 let icon_view: id = msg_send![class!(NSImageView), alloc];
                 let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                 let _: () = msg_send![icon_view, setImage: icon];
-                let _: () = msg_send![row_view, addSubview: icon_view];
+                let _: () = msg_send![cell_view, addSubview: icon_view];
 
-                // Add app name label
+                // Add app name label - centered below icon
+                let label_height = 28.0;
+                let label_y = 8.0; // 8px from bottom
                 let label_frame = NSRect::new(
-                    NSPoint::new(12.0 + icon_size + 12.0, (row_height - 20.0) / 2.0),
-                    NSSize::new(results_container_frame.size.width - icon_size - 36.0, 20.0),
+                    NSPoint::new(4.0, label_y),
+                    NSSize::new(cell_width - 8.0, label_height),
                 );
                 let label: id = msg_send![class!(NSTextField), alloc];
                 let label: id = msg_send![label, initWithFrame: label_frame];
@@ -832,6 +1182,7 @@ impl RofiUI {
                 let _: () = msg_send![label, setSelectable: 0u32];
                 let _: () = msg_send![label, setBordered: 0u32];
                 let _: () = msg_send![label, setDrawsBackground: 0u32];
+                let _: () = msg_send![label, setAlignment: 1i64]; // NSTextAlignmentCenter
 
                 let text_color = if index == 0 {
                     Config::hex_to_nscolor(&config.colors.selection_text)
@@ -841,17 +1192,19 @@ impl RofiUI {
                 let _: () = msg_send![label, setTextColor: text_color];
 
                 let font_cls = class!(NSFont);
-                let font: id = msg_send![font_cls, systemFontOfSize: 15.0f64];
+                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
                 let _: () = msg_send![label, setFont: font];
 
+                // Truncate long names
                 let name_str = NSString::alloc(nil).init_str(&result.name);
                 let _: () = msg_send![label, setStringValue: name_str];
+                let _: () = msg_send![label, setLineBreakMode: 4i64]; // Truncate tail
 
-                let _: () = msg_send![row_view, addSubview: label];
-                let _: () = msg_send![results_view, addSubview: row_view];
+                let _: () = msg_send![cell_view, addSubview: label];
+                let _: () = msg_send![results_view, addSubview: cell_view];
             }
 
-            let _: () = msg_send![content_view, addSubview: results_view];
+            let _: () = msg_send![content_view, addSubview: scroll_view];
 
             // Create and configure the text field delegate
             let delegate_class = create_text_field_delegate_class();
@@ -877,6 +1230,7 @@ impl RofiUI {
                 search_mode: search_mode.clone(),
                 search_field: SendId(search_field),
                 pill_buttons: pill_buttons.clone(),
+                config: config.clone(),
             });
             drop(data_map); // Release the lock
 

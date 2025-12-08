@@ -13,9 +13,26 @@ pub struct Application {
 }
 
 pub fn index_applications() -> Vec<Application> {
-    // Try loading from cache first
-    if let Some(cached) = load_cache() {
-        return cached;
+    // Check if cache exists and is recent (less than 1 hour old)
+    let cache_fresh = if let Ok(metadata) = fs::metadata(cache_path()) {
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(elapsed) = modified.elapsed() {
+                elapsed.as_secs() < 3600 // Cache valid for 1 hour
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    // Try loading from cache first if it's fresh
+    if cache_fresh {
+        if let Some(cached) = load_cache() {
+            return cached;
+        }
     }
 
     // Scan application directories

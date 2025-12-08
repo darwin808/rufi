@@ -43,18 +43,24 @@ pub struct RofiWindow {
 impl RofiWindow {
     pub fn new(config: &Config) -> Self {
         unsafe {
-            // Get main display dimensions for centering
+            // Get main display dimensions and calculate 1/4 screen size
             let display = CGDisplay::main();
             let screen_width = display.pixels_wide() as f64;
             let screen_height = display.pixels_high() as f64;
 
+            // Use 1/4 of screen width, but calculate height to fit at least 5 apps
+            let window_width = screen_width / 4.0;
+            // Height calculation: search(60) + pills(40) + 5 rows(56*5) + padding
+            let min_height: f64 = 60.0 + 40.0 + (56.0 * 5.0) + 120.0; // ~540px minimum
+            let window_height = min_height.max(screen_height / 4.0);
+
             // Calculate centered position
-            let x = (screen_width - config.window.width as f64) / 2.0;
-            let y = (screen_height - config.window.height as f64) / 2.0;
+            let x = (screen_width - window_width) / 2.0;
+            let y = (screen_height - window_height) / 2.0;
 
             let frame = NSRect::new(
                 NSPoint::new(x, y),
-                NSSize::new(config.window.width as f64, config.window.height as f64),
+                NSSize::new(window_width, window_height),
             );
 
             // Create custom borderless window that can receive keyboard input
@@ -69,22 +75,27 @@ impl RofiWindow {
 
             // Configure window properties - use normal level for keyboard input
             let _: () = msg_send![window, setLevel: 0]; // Normal level to receive keyboard
-            let _: () = msg_send![window, setOpaque: YES]; // Solid background
+            let _: () = msg_send![window, setOpaque: NO]; // Transparent for modern effects
             let _: () = msg_send![window, setHasShadow: YES];
             let _: () = msg_send![window, setMovableByWindowBackground: YES];
             let _: () = msg_send![window, setAcceptsMouseMovedEvents: YES];
 
-            // Modern 2026 UI: Rounded corners
+            // Modern rounded corners (12px for 2025 aesthetic)
             let content_view: id = msg_send![window, contentView];
             let _: () = msg_send![content_view, setWantsLayer: YES];
             let layer: id = msg_send![content_view, layer];
-            let _: () = msg_send![layer, setCornerRadius: 16.0f64];
+            let _: () = msg_send![layer, setCornerRadius: 16.0f64]; // Larger, more modern
             let _: () = msg_send![layer, setMasksToBounds: YES];
 
-            // Set solid dark background color
+            // Transparent background for glassmorphism
+            let cls = class!(NSColor);
+            let clear_color: id = msg_send![cls, clearColor];
+            let _: () = msg_send![window, setBackgroundColor: clear_color];
+
+            // Semi-transparent background with slight blur effect
             let bg_color = config.get_bg_color();
-            let _: () = msg_send![window, setBackgroundColor: bg_color];
-            let _: () = msg_send![content_view, setBackgroundColor: bg_color];
+            let alpha_bg: id = msg_send![bg_color, colorWithAlphaComponent: 0.95f64];
+            let _: () = msg_send![content_view, setBackgroundColor: alpha_bg];
 
             // Make window the key window (will accept keyboard events)
             let _: () = msg_send![window, makeKeyWindow];
