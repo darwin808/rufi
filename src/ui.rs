@@ -773,13 +773,23 @@ fn create_row_view_class() -> *const Class {
             // Store row index as an ivar
             decl.add_ivar::<isize>("rowIndex");
 
-            // Mouse entered - highlight the row
+            // Mouse entered - highlight the row with hover effect
             extern "C" fn mouse_entered(this: &mut Object, _: Sel, _event: id) {
                 unsafe {
                     let row_index: isize = *this.get_ivar("rowIndex");
                     println!("Mouse entered row: {}", row_index);
 
-                    // Get the window and search field delegate to update selection
+                    // Apply hover background color directly to this cell
+                    let layer: id = msg_send![this, layer];
+                    if layer != nil {
+                        // Subtle hover color (semi-transparent white)
+                        let hover_color = Config::hex_to_nscolor("#c9a88a");
+                        let _: () = msg_send![hover_color, colorWithAlphaComponent: 1.0f64];
+                        let hover_cg: id = msg_send![hover_color, CGColor];
+                        let _: () = msg_send![layer, setBackgroundColor: hover_cg];
+                    }
+
+                    // Also update the selected index
                     let window: id = msg_send![this, window];
                     if window == nil {
                         return;
@@ -810,19 +820,25 @@ fn create_row_view_class() -> *const Class {
                         if let Some(data) = data_map.as_mut().and_then(|m| m.get_mut(&delegate_ptr)) {
                             // Update selected index to this row
                             *data.selected_index.lock().unwrap() = row_index as usize;
-
-                            // Trigger UI rebuild to show highlight
-                            let search_field = data.search_field.0;
-                            let text: id = msg_send![search_field, stringValue];
-                            let _: () = msg_send![search_field, setStringValue: text];
                         }
                     }
                 }
             }
 
-            // Mouse exited - currently not needed but defined for tracking
-            extern "C" fn mouse_exited(_this: &mut Object, _: Sel, _event: id) {
-                // No-op for now - selection is handled by keyboard/mouse position
+            // Mouse exited - remove hover highlight
+            extern "C" fn mouse_exited(this: &mut Object, _: Sel, _event: id) {
+                unsafe {
+                    println!("Mouse exited row");
+                    
+                    // Remove hover background color
+                    let layer: id = msg_send![this, layer];
+                    if layer != nil {
+                        // Clear background (transparent)
+                        let clear_color: id = msg_send![class!(NSColor), clearColor];
+                        let clear_cg: id = msg_send![clear_color, CGColor];
+                        let _: () = msg_send![layer, setBackgroundColor: clear_cg];
+                    }
+                }
             }
 
             // Mouse down - launch the app
