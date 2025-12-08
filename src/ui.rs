@@ -982,34 +982,30 @@ impl RofiUI {
             let container_layer: id = msg_send![search_container, layer];
             let _: () = msg_send![container_layer, setCornerRadius: 0.0f64]; // No rounding for full width
 
-            // Add search icon (magnifying glass using Unicode)
-            let icon_size = 20.0;
-            let icon_x = 16.0;
+            // Add search icon using SF Symbols (magnifyingglass)
+            let icon_size = 18.0;
+            let icon_x = 20.0;
             let icon_y = (search_height - icon_size) / 2.0;
-            let icon_label_frame = NSRect::new(
+            let icon_frame = NSRect::new(
                 NSPoint::new(icon_x, icon_y),
                 NSSize::new(icon_size, icon_size),
             );
-            let icon_label: id = msg_send![class!(NSTextField), alloc];
-            let icon_label: id = msg_send![icon_label, initWithFrame: icon_label_frame];
-            let _: () = msg_send![icon_label, setEditable: 0u32];
-            let _: () = msg_send![icon_label, setSelectable: 0u32];
-            let _: () = msg_send![icon_label, setBordered: 0u32];
-            let _: () = msg_send![icon_label, setDrawsBackground: 0u32];
-            let icon_text = NSString::alloc(nil).init_str("\u{1F50D}"); // Magnifying glass emoji
-            let _: () = msg_send![icon_label, setStringValue: icon_text];
-            let font_cls = class!(NSFont);
-            let icon_font: id = msg_send![font_cls, systemFontOfSize: 18.0f64];
-            let _: () = msg_send![icon_label, setFont: icon_font];
-            let icon_color = Config::hex_to_nscolor("#ffffff");
-            let _: () = msg_send![icon_label, setTextColor: icon_color];
-            let _: () = msg_send![icon_label, setAlignment: 1i64]; // Center
-            let _: () = msg_send![search_container, addSubview: icon_label];
+            
+            // Create NSImage from SF Symbol
+            let symbol_name = NSString::alloc(nil).init_str("magnifyingglass");
+            let symbol_image: id = msg_send![class!(NSImage), imageWithSystemSymbolName:symbol_name accessibilityDescription:nil];
+            
+            // Create image view
+            let icon_view: id = msg_send![class!(NSImageView), alloc];
+            let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
+            let _: () = msg_send![icon_view, setImage: symbol_image];
+            let _: () = msg_send![icon_view, setContentTintColor: Config::hex_to_nscolor("#ffffff")];
+            let _: () = msg_send![search_container, addSubview: icon_view];
 
-            // Create text field starting after icon
-            let text_field_x = icon_x + icon_size + 8.0;
-            let text_field_width = window_width - text_field_x - 16.0;
-            let text_field_height = 30.0;
+            // Create text field starting after icon with proper spacing
+            let text_field_x = icon_x + icon_size + 12.0;
+            let text_field_width = window_width - text_field_x - 20.0;
+            let text_field_height = 24.0;
             let text_field_y = (search_height - text_field_height) / 2.0;
             let search_frame = NSRect::new(
                 NSPoint::new(text_field_x, text_field_y),
@@ -1034,7 +1030,7 @@ impl RofiUI {
             let _: () = msg_send![search_field, setEditable: 1u32];
             let _: () = msg_send![search_field, setSelectable: 1u32];
             let _: () = msg_send![search_field, setDrawsBackground: 0u32]; // Transparent
-            let _: () = msg_send![search_field, setFocusRingType: 0u32];
+            let _: () = msg_send![search_field, setFocusRingType: 1u32]; // NSFocusRingTypeNone = 1
 
             // White text on tan background
             let text_color = Config::hex_to_nscolor("#ffffff");
@@ -1058,6 +1054,7 @@ impl RofiUI {
             let _: () = msg_send![cell, setUsesSingleLineMode: 1u32];
             let _: () = msg_send![cell, setScrollable: 1u32];
             let _: () = msg_send![cell, setLineBreakMode: 4i64];
+            let _: () = msg_send![cell, setFocusRingType: 1u32]; // NSFocusRingTypeNone = 1
             let _: () = msg_send![search_field, setRefusesFirstResponder: 0u32];
 
             let _: () = msg_send![search_container, addSubview: search_field];
