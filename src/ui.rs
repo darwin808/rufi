@@ -130,9 +130,9 @@ fn create_text_field_delegate_class() -> *const Class {
                     let workspace_class = class!(NSWorkspace);
                     let workspace: id = msg_send![workspace_class, sharedWorkspace];
                     let grid_columns = 5.0;
-                    let cell_width = 120.0;
-                    let cell_height = 120.0;
-                    let icon_size = 64.0;
+                    let cell_width = 140.0;
+                    let cell_height = 140.0;
+                            let icon_size = 88.0;
                     let cell_spacing = 12.0;
                     let frame: NSRect = msg_send![results_view, frame];
 
@@ -181,8 +181,10 @@ fn create_text_field_delegate_class() -> *const Class {
                         if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                             let path_str = NSString::alloc(nil).init_str(&result.path);
                             let icon: id = msg_send![workspace, iconForFile: path_str];
+                            let icon_ns_size = NSSize::new(icon_size, icon_size);
+                            let _: () = msg_send![icon, setSize: icon_ns_size];
                             let icon_x = (cell_width - icon_size) / 2.0;
-                            let icon_y = cell_height - icon_size - 8.0;
+                            let icon_y = cell_height - icon_size - 16.0;
                             let icon_frame = NSRect::new(
                                 NSPoint::new(icon_x, icon_y),
                                 NSSize::new(icon_size, icon_size),
@@ -190,6 +192,7 @@ fn create_text_field_delegate_class() -> *const Class {
                             let icon_view: id = msg_send![class!(NSImageView), alloc];
                             let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                             let _: () = msg_send![icon_view, setImage: icon];
+                            let _: () = msg_send![icon_view, setImageScaling: 3i64];
                             let _: () = msg_send![cell_view, addSubview: icon_view];
                         }
 
@@ -208,7 +211,7 @@ fn create_text_field_delegate_class() -> *const Class {
                         let text_color = if index == selected_idx { selection_text } else { normal_text };
                         let _: () = msg_send![label, setTextColor: text_color];
                         let font_cls = class!(NSFont);
-                        let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
+                        let font: id = msg_send![font_cls, systemFontOfSize: 14.0f64];
                         let _: () = msg_send![label, setFont: font];
                         let name_str = NSString::alloc(nil).init_str(&result.name);
                         let _: () = msg_send![label, setStringValue: name_str];
@@ -247,6 +250,9 @@ fn create_text_field_delegate_class() -> *const Class {
 
                     let sel_name = sel_getName(command_selector);
                     let sel_str = std::ffi::CStr::from_ptr(sel_name).to_string_lossy();
+                    
+                    // Debug: print all selectors received
+                    println!("Selector received: {}", sel_str);
 
                     // Escape key triggers "cancelOperation:"
                     if sel_str == "cancelOperation:" {
@@ -295,7 +301,7 @@ fn create_text_field_delegate_class() -> *const Class {
                         return YES as u8;
                     }
 
-                    // Arrow Down triggers "moveDown:"
+                    // Arrow Down triggers "moveDown:" - move to next row (5 items)
                     if sel_str == "moveDown:" {
                         println!("Arrow Down pressed");
                         let delegate: id = msg_send![control, delegate];
@@ -303,10 +309,12 @@ fn create_text_field_delegate_class() -> *const Class {
 
                         let mut data_map = DELEGATE_DATA.lock().unwrap();
                         if let Some(data) = data_map.as_mut().and_then(|m| m.get_mut(&delegate_ptr)) {
+                            let grid_cols: usize = 5;
                             let filtered_count = data.filtered.lock().unwrap().len();
                             let mut selected_idx = data.selected_index.lock().unwrap();
-                            if *selected_idx < filtered_count.saturating_sub(1) {
-                                *selected_idx += 1;
+                            let new_idx = *selected_idx + grid_cols;
+                            if new_idx < filtered_count {
+                                *selected_idx = new_idx;
                                 println!("Selection moved to: {}", *selected_idx);
                             }
                             drop(selected_idx);
@@ -335,9 +343,9 @@ fn create_text_field_delegate_class() -> *const Class {
                             let workspace_class = class!(NSWorkspace);
                             let workspace: id = msg_send![workspace_class, sharedWorkspace];
                             let grid_columns = 5.0;
-                            let cell_width = 120.0;
-                            let cell_height = 120.0;
-                            let icon_size = 64.0;
+                            let cell_width = 140.0;
+                            let cell_height = 140.0;
+                                    let icon_size = 88.0;
                             let cell_spacing = 12.0;
                             let frame: NSRect = msg_send![results_view, frame];
 
@@ -375,12 +383,15 @@ fn create_text_field_delegate_class() -> *const Class {
                                 if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                                     let path_str = NSString::alloc(nil).init_str(&result.path);
                                     let icon: id = msg_send![workspace, iconForFile: path_str];
+                                    let icon_ns_size = NSSize::new(icon_size, icon_size);
+                                    let _: () = msg_send![icon, setSize: icon_ns_size];
                                     let icon_x = (cell_width - icon_size) / 2.0;
-                                    let icon_y = cell_height - icon_size - 8.0;
+                                    let icon_y = cell_height - icon_size - 16.0;
                                     let icon_frame = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(icon_size, icon_size));
                                     let icon_view: id = msg_send![class!(NSImageView), alloc];
                                     let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                                     let _: () = msg_send![icon_view, setImage: icon];
+                                    let _: () = msg_send![icon_view, setImageScaling: 3i64];
                                     let _: () = msg_send![cell_view, addSubview: icon_view];
                                 }
 
@@ -395,7 +406,7 @@ fn create_text_field_delegate_class() -> *const Class {
                                 let text_color = if index == selected_index { selection_text } else { normal_text };
                                 let _: () = msg_send![label, setTextColor: text_color];
                                 let font_cls = class!(NSFont);
-                                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
+                                let font: id = msg_send![font_cls, systemFontOfSize: 14.0f64];
                                 let _: () = msg_send![label, setFont: font];
                                 let name_str = NSString::alloc(nil).init_str(&result.name);
                                 let _: () = msg_send![label, setStringValue: name_str];
@@ -407,7 +418,7 @@ fn create_text_field_delegate_class() -> *const Class {
                         return YES as u8;
                     }
 
-                    // Arrow Up triggers "moveUp:"
+                    // Arrow Up triggers "moveUp:" - move to previous row (5 items)
                     if sel_str == "moveUp:" {
                         println!("Arrow Up pressed");
                         let delegate: id = msg_send![control, delegate];
@@ -415,9 +426,10 @@ fn create_text_field_delegate_class() -> *const Class {
 
                         let mut data_map = DELEGATE_DATA.lock().unwrap();
                         if let Some(data) = data_map.as_mut().and_then(|m| m.get_mut(&delegate_ptr)) {
+                            let grid_cols: usize = 5;
                             let mut selected_idx = data.selected_index.lock().unwrap();
-                            if *selected_idx > 0 {
-                                *selected_idx -= 1;
+                            if *selected_idx >= grid_cols {
+                                *selected_idx -= grid_cols;
                                 println!("Selection moved to: {}", *selected_idx);
                             }
                             drop(selected_idx);
@@ -446,9 +458,9 @@ fn create_text_field_delegate_class() -> *const Class {
                             let workspace_class = class!(NSWorkspace);
                             let workspace: id = msg_send![workspace_class, sharedWorkspace];
                             let grid_columns = 5.0;
-                            let cell_width = 120.0;
-                            let cell_height = 120.0;
-                            let icon_size = 64.0;
+                            let cell_width = 140.0;
+                            let cell_height = 140.0;
+                                    let icon_size = 88.0;
                             let cell_spacing = 12.0;
                             let frame: NSRect = msg_send![results_view, frame];
 
@@ -486,12 +498,15 @@ fn create_text_field_delegate_class() -> *const Class {
                                 if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                                     let path_str = NSString::alloc(nil).init_str(&result.path);
                                     let icon: id = msg_send![workspace, iconForFile: path_str];
+                                    let icon_ns_size = NSSize::new(icon_size, icon_size);
+                                    let _: () = msg_send![icon, setSize: icon_ns_size];
                                     let icon_x = (cell_width - icon_size) / 2.0;
-                                    let icon_y = cell_height - icon_size - 8.0;
+                                    let icon_y = cell_height - icon_size - 16.0;
                                     let icon_frame = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(icon_size, icon_size));
                                     let icon_view: id = msg_send![class!(NSImageView), alloc];
                                     let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                                     let _: () = msg_send![icon_view, setImage: icon];
+                                    let _: () = msg_send![icon_view, setImageScaling: 3i64];
                                     let _: () = msg_send![cell_view, addSubview: icon_view];
                                 }
 
@@ -506,13 +521,98 @@ fn create_text_field_delegate_class() -> *const Class {
                                 let text_color = if index == selected_index { selection_text } else { normal_text };
                                 let _: () = msg_send![label, setTextColor: text_color];
                                 let font_cls = class!(NSFont);
-                                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
+                                let font: id = msg_send![font_cls, systemFontOfSize: 14.0f64];
                                 let _: () = msg_send![label, setFont: font];
                                 let name_str = NSString::alloc(nil).init_str(&result.name);
                                 let _: () = msg_send![label, setStringValue: name_str];
                                 let _: () = msg_send![label, setLineBreakMode: 4i64];
                                 let _: () = msg_send![cell_view, addSubview: label];
                                 let _: () = msg_send![results_view, addSubview: cell_view];
+                            }
+                        }
+                        return YES as u8;
+                    }
+
+                    // Arrow Right triggers "moveRight:" - move to next item
+                    if sel_str == "moveRight:" {
+                        println!("Arrow Right pressed");
+                        let delegate: id = msg_send![control, delegate];
+                        let delegate_ptr = delegate as usize;
+
+                        let mut data_map = DELEGATE_DATA.lock().unwrap();
+                        if let Some(data) = data_map.as_mut().and_then(|m| m.get_mut(&delegate_ptr)) {
+                            let filtered_count = data.filtered.lock().unwrap().len();
+                            let mut selected_idx = data.selected_index.lock().unwrap();
+                            if *selected_idx < filtered_count.saturating_sub(1) {
+                                *selected_idx += 1;
+                                println!("Selection moved to: {}", *selected_idx);
+                            }
+                            let new_selected = *selected_idx;
+                            drop(selected_idx);
+
+                            // Update cell backgrounds for visual selection
+                            let results_view = data.results_view.0;
+                            let selection_bg = Config::hex_to_nscolor(&data.config.colors.selection_background);
+                            let clear_color: id = msg_send![class!(NSColor), clearColor];
+                            
+                            let subviews: id = msg_send![results_view, subviews];
+                            let count: usize = msg_send![subviews, count];
+                            for i in 0..count {
+                                let cell_view: id = msg_send![subviews, objectAtIndex: i];
+                                let layer: id = msg_send![cell_view, layer];
+                                if layer != nil {
+                                    // Get the row index from the cell
+                                    let row_idx: isize = *(&*cell_view as &Object).get_ivar::<isize>("rowIndex");
+                                    if row_idx == new_selected as isize {
+                                        let cg_color: id = msg_send![selection_bg, CGColor];
+                                        let _: () = msg_send![layer, setBackgroundColor: cg_color];
+                                    } else {
+                                        let cg_color: id = msg_send![clear_color, CGColor];
+                                        let _: () = msg_send![layer, setBackgroundColor: cg_color];
+                                    }
+                                }
+                            }
+                        }
+                        return YES as u8;
+                    }
+
+                    // Arrow Left triggers "moveLeft:" - move to previous item
+                    if sel_str == "moveLeft:" {
+                        println!("Arrow Left pressed");
+                        let delegate: id = msg_send![control, delegate];
+                        let delegate_ptr = delegate as usize;
+
+                        let mut data_map = DELEGATE_DATA.lock().unwrap();
+                        if let Some(data) = data_map.as_mut().and_then(|m| m.get_mut(&delegate_ptr)) {
+                            let mut selected_idx = data.selected_index.lock().unwrap();
+                            if *selected_idx > 0 {
+                                *selected_idx -= 1;
+                                println!("Selection moved to: {}", *selected_idx);
+                            }
+                            let new_selected = *selected_idx;
+                            drop(selected_idx);
+
+                            // Update cell backgrounds for visual selection
+                            let results_view = data.results_view.0;
+                            let selection_bg = Config::hex_to_nscolor(&data.config.colors.selection_background);
+                            let clear_color: id = msg_send![class!(NSColor), clearColor];
+                            
+                            let subviews: id = msg_send![results_view, subviews];
+                            let count: usize = msg_send![subviews, count];
+                            for i in 0..count {
+                                let cell_view: id = msg_send![subviews, objectAtIndex: i];
+                                let layer: id = msg_send![cell_view, layer];
+                                if layer != nil {
+                                    // Get the row index from the cell
+                                    let row_idx: isize = *(&*cell_view as &Object).get_ivar::<isize>("rowIndex");
+                                    if row_idx == new_selected as isize {
+                                        let cg_color: id = msg_send![selection_bg, CGColor];
+                                        let _: () = msg_send![layer, setBackgroundColor: cg_color];
+                                    } else {
+                                        let cg_color: id = msg_send![clear_color, CGColor];
+                                        let _: () = msg_send![layer, setBackgroundColor: cg_color];
+                                    }
+                                }
                             }
                         }
                         return YES as u8;
@@ -663,9 +763,9 @@ fn create_button_action_class() -> *const Class {
                             let workspace_class = class!(NSWorkspace);
                             let workspace: id = msg_send![workspace_class, sharedWorkspace];
                             let grid_columns = 5.0;
-                            let cell_width = 120.0;
-                            let cell_height = 120.0;
-                            let icon_size = 64.0;
+                            let cell_width = 140.0;
+                            let cell_height = 140.0;
+                                    let icon_size = 88.0;
                             let cell_spacing = 12.0;
                             let frame: NSRect = msg_send![results_view, frame];
 
@@ -704,12 +804,15 @@ fn create_button_action_class() -> *const Class {
                                 if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
                                     let path_str = NSString::alloc(nil).init_str(&result.path);
                                     let icon: id = msg_send![workspace, iconForFile: path_str];
+                                    let icon_ns_size = NSSize::new(icon_size, icon_size);
+                                    let _: () = msg_send![icon, setSize: icon_ns_size];
                                     let icon_x = (cell_width - icon_size) / 2.0;
-                                    let icon_y = cell_height - icon_size - 8.0;
+                                    let icon_y = cell_height - icon_size - 16.0;
                                     let icon_frame = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(icon_size, icon_size));
                                     let icon_view: id = msg_send![class!(NSImageView), alloc];
                                     let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                                     let _: () = msg_send![icon_view, setImage: icon];
+                                    let _: () = msg_send![icon_view, setImageScaling: 3i64];
                                     let _: () = msg_send![cell_view, addSubview: icon_view];
                                 }
 
@@ -724,7 +827,7 @@ fn create_button_action_class() -> *const Class {
                                 let text_color = if index == 0 { selection_text } else { normal_text };
                                 let _: () = msg_send![label, setTextColor: text_color];
                                 let font_cls = class!(NSFont);
-                                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
+                                let font: id = msg_send![font_cls, systemFontOfSize: 14.0f64];
                                 let _: () = msg_send![label, setFont: font];
                                 let name_str = NSString::alloc(nil).init_str(&result.name);
                                 let _: () = msg_send![label, setStringValue: name_str];
@@ -981,7 +1084,7 @@ impl RofiUI {
 
             // Modern UI: Create search container with icon
             let search_padding = 0.0; // Full width
-            let search_height = 60.0; // Taller like reference
+            let search_height = 70.0; // Taller for larger text
             let search_container_frame = NSRect::new(
                 NSPoint::new(search_padding, window_height - search_height - search_padding),
                 NSSize::new(window_width - (search_padding * 2.0), search_height),
@@ -999,7 +1102,7 @@ impl RofiUI {
             let _: () = msg_send![container_layer, setCornerRadius: 0.0f64]; // No rounding for full width
 
             // Add search icon using SF Symbols (magnifyingglass)
-            let icon_size = 18.0;
+            let icon_size = 28.0;
             let icon_x = 20.0;
             let icon_y = (search_height - icon_size) / 2.0;
             let icon_frame = NSRect::new(
@@ -1021,8 +1124,8 @@ impl RofiUI {
             // Create text field starting after icon with proper spacing
             let text_field_x = icon_x + icon_size + 12.0;
             let text_field_width = window_width - text_field_x - 20.0;
-            let text_field_height = 24.0;
-            let text_field_y = (search_height - text_field_height) / 2.0;
+            let text_field_height = 36.0;
+            let text_field_y = (search_height - text_field_height) / 2.0 - 2.0; // Slight offset for baseline alignment
             let search_frame = NSRect::new(
                 NSPoint::new(text_field_x, text_field_y),
                 NSSize::new(text_field_width, text_field_height),
@@ -1037,6 +1140,10 @@ impl RofiUI {
             let attrs_dict: id = msg_send![class!(NSMutableDictionary), new];
             let foreground_key = NSString::alloc(nil).init_str("NSColor");
             let _: () = msg_send![attrs_dict, setObject:placeholder_color forKey:foreground_key];
+            // Add font to placeholder attributes
+            let font_key = NSString::alloc(nil).init_str("NSFont");
+            let placeholder_font: id = msg_send![class!(NSFont), systemFontOfSize: 24.0f64];
+            let _: () = msg_send![attrs_dict, setObject:placeholder_font forKey:font_key];
             let placeholder_attr: id = msg_send![class!(NSAttributedString), alloc];
             let placeholder_attr: id = msg_send![placeholder_attr, initWithString:placeholder_text attributes:attrs_dict];
             let _: () = msg_send![search_field, setPlaceholderAttributedString: placeholder_attr];
@@ -1055,7 +1162,7 @@ impl RofiUI {
             // Set font for search field
             let font_cls = class!(NSFont);
             let font_name = NSString::alloc(nil).init_str(&config.font.family);
-            let font_size = 16.0f64;
+            let font_size = 24.0f64;
             let font: id = msg_send![font_cls, fontWithName:font_name size:font_size];
             let font = if font == nil {
                 msg_send![font_cls, systemFontOfSize: font_size]
@@ -1086,10 +1193,10 @@ impl RofiUI {
             // Modern grid view with icons - Create container for app cells
             let results_padding = 24.0;
             let results_top_margin = 8.0;
-            let grid_columns = 5.0; // 5 apps per row like the reference
-            let cell_width = 120.0; // Width of each grid cell
-            let cell_height = 120.0; // Height of each grid cell (icon + label)
-            let icon_size = 64.0; // Larger icons for grid view
+            let grid_columns = 5.0; // 5 apps per row
+            let cell_width = 140.0; // Width of each grid cell
+            let cell_height = 140.0; // Height of each grid cell (icon + label)
+            let icon_size = 88.0; // Larger icons for grid view
             let cell_spacing = 12.0; // Spacing between cells
 
             let results_container_frame = NSRect::new(
@@ -1171,8 +1278,12 @@ impl RofiUI {
                 // Load icon - centered at top of cell
                 let path_str = NSString::alloc(nil).init_str(&result.path);
                 let icon: id = msg_send![workspace, iconForFile: path_str];
+                // Set the icon size to match our desired size
+                let icon_ns_size = NSSize::new(icon_size, icon_size);
+                let _: () = msg_send![icon, setSize: icon_ns_size];
+                
                 let icon_x = (cell_width - icon_size) / 2.0;
-                let icon_y = cell_height - icon_size - 8.0; // 8px from top
+                let icon_y = cell_height - icon_size - 16.0; // 16px from top
                 let icon_frame = NSRect::new(
                     NSPoint::new(icon_x, icon_y),
                     NSSize::new(icon_size, icon_size),
@@ -1180,6 +1291,8 @@ impl RofiUI {
                 let icon_view: id = msg_send![class!(NSImageView), alloc];
                 let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
                 let _: () = msg_send![icon_view, setImage: icon];
+                // NSImageScaleProportionallyUpOrDown = 3
+                let _: () = msg_send![icon_view, setImageScaling: 3i64];
                 let _: () = msg_send![cell_view, addSubview: icon_view];
 
                 // Add app name label - centered below icon
@@ -1205,7 +1318,7 @@ impl RofiUI {
                 let _: () = msg_send![label, setTextColor: text_color];
 
                 let font_cls = class!(NSFont);
-                let font: id = msg_send![font_cls, systemFontOfSize: 12.0f64];
+                let font: id = msg_send![font_cls, systemFontOfSize: 14.0f64];
                 let _: () = msg_send![label, setFont: font];
 
                 // Truncate long names
@@ -1218,6 +1331,14 @@ impl RofiUI {
             }
 
             let _: () = msg_send![content_view, addSubview: scroll_view];
+            
+            // Scroll to top to show first row of apps
+            let clip_view: id = msg_send![scroll_view, contentView];
+            let doc_view: id = msg_send![scroll_view, documentView];
+            let doc_frame: NSRect = msg_send![doc_view, frame];
+            let scroll_point = NSPoint::new(0.0, doc_frame.size.height);
+            let _: () = msg_send![clip_view, scrollToPoint: scroll_point];
+            let _: () = msg_send![scroll_view, reflectScrolledClipView: clip_view];
 
             // Create and configure the text field delegate
             let delegate_class = create_text_field_delegate_class();

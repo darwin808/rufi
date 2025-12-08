@@ -43,20 +43,21 @@ pub struct RofiWindow {
 impl RofiWindow {
     pub fn new(config: &Config) -> Self {
         unsafe {
-            // Get main display dimensions and calculate 1/4 screen size
+            // Get main display dimensions and calculate window size for 5x3 grid
             let display = CGDisplay::main();
             let screen_width = display.pixels_wide() as f64;
             let screen_height = display.pixels_high() as f64;
 
-            // Use 1/4 of screen width, but calculate height to fit at least 5 apps
-            let window_width = screen_width / 4.0;
-            // Height calculation: search(60) + pills(40) + 5 rows(56*5) + padding
-            let min_height: f64 = 60.0 + 40.0 + (56.0 * 5.0) + 120.0; // ~540px minimum
-            let window_height = min_height.max(screen_height / 4.0);
+            // Calculate width to fit 5 columns: 5 cells(140px each) + 4 gaps(12px) + padding(48px) = ~796px
+            let min_width: f64 = 800.0;
+            let window_width = min_width.max(screen_width / 2.5);
+            // Height calculation: search(60) + 3 rows(140*3) + padding(80) = ~560px
+            let min_height: f64 = 60.0 + (140.0 * 3.0) + 80.0;
+            let window_height = min_height.max(screen_height / 3.0);
 
-            // Calculate centered position
+            // Calculate centered position (offset 20px lower)
             let x = (screen_width - window_width) / 2.0;
-            let y = (screen_height - window_height) / 2.0;
+            let y = (screen_height - window_height) / 2.0 - 20.0;
 
             let frame = NSRect::new(
                 NSPoint::new(x, y),
@@ -102,7 +103,9 @@ impl RofiWindow {
 
             // Make window key and visible
             let _: () = msg_send![window, makeKeyAndOrderFront: nil];
-            let _: () = msg_send![window, center];
+            // Position window: center horizontally, slightly below center vertically
+            let origin = NSPoint::new(x, y);
+            let _: () = msg_send![window, setFrameOrigin: origin];
             let _: () = msg_send![window, orderFrontRegardless];
 
             // Activate the app
