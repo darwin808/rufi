@@ -2,6 +2,10 @@
 
 A fast, native macOS application launcher inspired by Rofi. Rufi provides a spotlight-like interface for quickly searching and launching applications, files, and system commands.
 
+![Rufi Demo](./assets/demo.gif)
+
+<!-- Replace with actual demo GIF -->
+
 ## Features
 
 - **Application Search**: Quickly find and launch installed applications
@@ -13,11 +17,18 @@ A fast, native macOS application launcher inspired by Rofi. Rufi provides a spot
 
 ## Installation
 
+### Homebrew (Recommended)
+
+```bash
+brew tap darwin808/rufi
+brew install rufi
+```
+
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/darwin808/rufi.git
 cd rufi
 
 # Build the release binary
@@ -29,6 +40,12 @@ cargo build --release
 ## Usage
 
 Run Rufi from the terminal:
+
+```bash
+rufi
+```
+
+Or if built from source:
 
 ```bash
 ./target/release/rufi
