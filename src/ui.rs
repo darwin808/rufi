@@ -1249,7 +1249,7 @@ impl RofiUI {
             let _: () = msg_send![search_container, addSubview: icon_view];
 
             // Create text field starting after icon with proper spacing
-            let text_field_x = icon_x + icon_size + 20.0;
+            let text_field_x = icon_x + icon_size + 10.0;
             let text_field_width = window_width - text_field_x - 20.0;
 
             let text_field_height = 40.0;
