@@ -1,11 +1,11 @@
-use cocoa::appkit::{NSWindow, NSWindowStyleMask, NSBackingStoreType};
+use crate::config::Config;
+use cocoa::appkit::{NSBackingStoreType, NSWindow, NSWindowStyleMask};
 use cocoa::base::{id, nil};
-use cocoa::foundation::{NSRect, NSPoint, NSSize, NSString};
+use cocoa::foundation::{NSPoint, NSRect, NSSize, NSString};
 use core_graphics::display::CGDisplay;
 use objc::declare::ClassDecl;
-use objc::runtime::{Class, Object, Sel, YES, NO};
-use objc::{msg_send, sel, sel_impl, class};
-use crate::config::Config;
+use objc::runtime::{Class, Object, Sel, NO, YES};
+use objc::{class, msg_send, sel, sel_impl};
 use std::sync::Once;
 
 static WINDOW_CLASS_INIT: Once = Once::new();
@@ -25,8 +25,14 @@ fn create_borderless_window_class() -> *const Class {
             }
 
             unsafe {
-                decl.add_method(sel!(canBecomeKeyWindow), can_become_key as extern "C" fn(&Object, Sel) -> u8);
-                decl.add_method(sel!(canBecomeMainWindow), can_become_main as extern "C" fn(&Object, Sel) -> u8);
+                decl.add_method(
+                    sel!(canBecomeKeyWindow),
+                    can_become_key as extern "C" fn(&Object, Sel) -> u8,
+                );
+                decl.add_method(
+                    sel!(canBecomeMainWindow),
+                    can_become_main as extern "C" fn(&Object, Sel) -> u8,
+                );
             }
 
             decl.register();
@@ -59,10 +65,7 @@ impl RofiWindow {
             let x = (screen_width - window_width) / 2.0;
             let y = (screen_height - window_height) / 2.0 - 20.0;
 
-            let frame = NSRect::new(
-                NSPoint::new(x, y),
-                NSSize::new(window_width, window_height),
-            );
+            let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(window_width, window_height));
 
             // Create custom borderless window that can receive keyboard input
             let window_class = create_borderless_window_class();

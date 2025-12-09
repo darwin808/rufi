@@ -1,9 +1,9 @@
+use cocoa::appkit::NSColor;
+use cocoa::base::id;
+use objc::{class, msg_send, sel, sel_impl};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use cocoa::base::id;
-use cocoa::appkit::NSColor;
-use objc::{msg_send, sel, sel_impl, class};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -70,16 +70,16 @@ impl Config {
                 height: 500,
             },
             colors: ColorConfig {
-                background: "#282828".to_string(),      // Gruvbox dark background
-                text: "#ebdbb2".to_string(),            // Gruvbox light foreground
+                background: "#282828".to_string(), // Gruvbox dark background
+                text: "#ebdbb2".to_string(),       // Gruvbox light foreground
                 selection_background: "#d79921".to_string(), // Gruvbox yellow/gold
-                selection_text: "#282828".to_string(),  // Dark text on selection
+                selection_text: "#282828".to_string(), // Dark text on selection
                 input_background: "#3c3836".to_string(), // Gruvbox dark1
-                border: "#504945".to_string(),          // Gruvbox dark4
+                border: "#504945".to_string(),     // Gruvbox dark4
             },
             font: FontConfig {
-                size: 18.0,                              // Larger for better readability
-                family: "JetBrains Mono".to_string(),   // Monospace for unixporn aesthetic
+                size: 18.0,                           // Larger for better readability
+                family: "JetBrains Mono".to_string(), // Monospace for unixporn aesthetic
             },
             theme: "gruvbox".to_string(),
         }
@@ -157,21 +157,15 @@ impl Config {
     }
 
     pub fn get_bg_color(&self) -> id {
-        unsafe {
-            Self::hex_to_nscolor(&self.colors.background)
-        }
+        unsafe { Self::hex_to_nscolor(&self.colors.background) }
     }
 
     pub fn get_text_color(&self) -> id {
-        unsafe {
-            Self::hex_to_nscolor(&self.colors.text)
-        }
+        unsafe { Self::hex_to_nscolor(&self.colors.text) }
     }
 
     pub fn get_selection_color(&self) -> id {
-        unsafe {
-            Self::hex_to_nscolor(&self.colors.selection_background)
-        }
+        unsafe { Self::hex_to_nscolor(&self.colors.selection_background) }
     }
 
     pub unsafe fn hex_to_nscolor(hex: &str) -> id {

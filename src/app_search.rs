@@ -1,8 +1,8 @@
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Application {
@@ -37,11 +37,7 @@ pub fn index_applications() -> Vec<Application> {
 
     // Scan application directories
     let home_apps = format!("{}/Applications", std::env::var("HOME").unwrap_or_default());
-    let app_dirs = vec![
-        "/Applications",
-        home_apps.as_str(),
-        "/System/Applications",
-    ];
+    let app_dirs = vec!["/Applications", home_apps.as_str(), "/System/Applications"];
 
     let mut scanned_apps = Vec::new();
 

@@ -1,16 +1,16 @@
-mod window;
 mod app_search;
 mod config;
-mod ui;
 mod delegate;
-mod search_mode;
 mod file_search;
+mod search_mode;
 mod system_commands;
+mod ui;
+mod window;
 
+use clap::Parser;
 use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular};
 use objc::{msg_send, sel, sel_impl};
 use std::sync::Once;
-use clap::Parser;
 
 static INIT: Once = Once::new();
 

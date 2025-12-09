@@ -1,6 +1,6 @@
 use crate::search_mode::SearchResult;
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 
 pub struct SystemCommand {
     pub name: String,
@@ -18,9 +18,18 @@ impl SystemCommand {
 
 pub fn get_system_commands() -> Vec<SystemCommand> {
     vec![
-        SystemCommand::new("Shutdown", "osascript -e 'tell app \"System Events\" to shut down'"),
-        SystemCommand::new("Reboot", "osascript -e 'tell app \"System Events\" to restart'"),
-        SystemCommand::new("Sleep", "osascript -e 'tell app \"System Events\" to sleep'"),
+        SystemCommand::new(
+            "Shutdown",
+            "osascript -e 'tell app \"System Events\" to shut down'",
+        ),
+        SystemCommand::new(
+            "Reboot",
+            "osascript -e 'tell app \"System Events\" to restart'",
+        ),
+        SystemCommand::new(
+            "Sleep",
+            "osascript -e 'tell app \"System Events\" to sleep'",
+        ),
         SystemCommand::new("Lock Screen", "pmset displaysleepnow"),
     ]
 }
@@ -32,7 +41,9 @@ pub fn search_commands(query: &str) -> Vec<SearchResult> {
     if query.is_empty() {
         return commands
             .into_iter()
-            .map(|cmd| SearchResult::new(cmd.name, cmd.command, crate::search_mode::SearchMode::Run))
+            .map(|cmd| {
+                SearchResult::new(cmd.name, cmd.command, crate::search_mode::SearchMode::Run)
+            })
             .collect();
     }
 
@@ -49,6 +60,8 @@ pub fn search_commands(query: &str) -> Vec<SearchResult> {
     scored.sort_by(|a, b| b.1.cmp(&a.1));
     scored
         .into_iter()
-        .map(|(cmd, _)| SearchResult::new(cmd.name, cmd.command, crate::search_mode::SearchMode::Run))
+        .map(|(cmd, _)| {
+            SearchResult::new(cmd.name, cmd.command, crate::search_mode::SearchMode::Run)
+        })
         .collect()
 }

@@ -2,7 +2,7 @@ use cocoa::appkit::NSApp;
 use cocoa::base::{id, nil};
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel};
-use objc::{msg_send, sel, sel_impl, class};
+use objc::{class, msg_send, sel, sel_impl};
 
 pub fn create_app_delegate() -> id {
     unsafe {

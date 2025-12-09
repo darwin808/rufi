@@ -1,11 +1,18 @@
 use crate::search_mode::SearchResult;
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
+use rand::seq::SliceRandom;
 use std::fs;
 use std::path::{Path, PathBuf};
-use rand::seq::SliceRandom;
 
-fn search_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResult>, max_results: usize, max_depth: usize, current_depth: usize) {
+fn search_recursive(
+    dir: &Path,
+    query: &str,
+    results: &mut Vec<SearchResult>,
+    max_results: usize,
+    max_depth: usize,
+    current_depth: usize,
+) {
     if results.len() >= max_results || current_depth > max_depth {
         return;
     }
@@ -24,7 +31,11 @@ fn search_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResult>, ma
         };
 
         // Skip hidden files/directories and system directories
-        if file_name.starts_with('.') || file_name == "Library" || file_name == "node_modules" || file_name == "target" {
+        if file_name.starts_with('.')
+            || file_name == "Library"
+            || file_name == "node_modules"
+            || file_name == "target"
+        {
             continue;
         }
 
@@ -42,7 +53,14 @@ fn search_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResult>, ma
         // Recursively search subdirectories
         if let Ok(metadata) = entry.metadata() {
             if metadata.is_dir() {
-                search_recursive(&entry.path(), query, results, max_results, max_depth, current_depth + 1);
+                search_recursive(
+                    &entry.path(),
+                    query,
+                    results,
+                    max_results,
+                    max_depth,
+                    current_depth + 1,
+                );
             }
         }
     }
@@ -74,7 +92,11 @@ pub fn search_files(query: &str) -> Vec<SearchResult> {
         .collect();
 
     scored.sort_by(|a, b| b.1.cmp(&a.1));
-    scored.into_iter().map(|(result, _)| result).take(8).collect()
+    scored
+        .into_iter()
+        .map(|(result, _)| result)
+        .take(8)
+        .collect()
 }
 
 pub fn search_files_random(count: usize) -> Vec<SearchResult> {
