@@ -303,7 +303,15 @@ fn create_text_field_delegate_class() -> *const Class {
                                             msg_send![workspace_class, sharedWorkspace];
                                         let path_string =
                                             NSString::alloc(nil).init_str(&result.path);
-                                        let _: id = msg_send![workspace, openFile: path_string];
+
+                                        // Use launchApplication for apps, openFile for other files
+                                        if result.result_type == SearchMode::Apps {
+                                            let _: bool = msg_send![workspace, launchApplication: path_string];
+                                        } else {
+                                            let url_class = class!(NSURL);
+                                            let url: id = msg_send![url_class, fileURLWithPath: path_string];
+                                            let _: bool = msg_send![workspace, openURL: url];
+                                        }
                                     }
                                     SearchMode::Run => {
                                         // Execute system command
@@ -1001,15 +1009,15 @@ fn create_row_view_class() -> *const Class {
                     let row_index: isize = *this.get_ivar("rowIndex");
                     println!("Mouse entered row: {}", row_index);
 
+
                     // Apply hover background color directly to this cell
-                    let layer: id = msg_send![this, layer];
-                    if layer != nil {
-                        // Subtle hover color (semi-transparent white)
-                        let hover_color = Config::hex_to_nscolor("#c9a88a");
-                        let _: () = msg_send![hover_color, colorWithAlphaComponent: 1.0f64];
-                        let hover_cg: id = msg_send![hover_color, CGColor];
-                        let _: () = msg_send![layer, setBackgroundColor: hover_cg];
-                    }
+let layer: id = msg_send![this, layer];
+if layer != nil {
+    // Use selection background color from config (matches arrow key selection)
+    let hover_color = Config::hex_to_nscolor("#d79921");
+    let hover_cg: id = msg_send![hover_color, CGColor];
+    let _: () = msg_send![layer, setBackgroundColor: hover_cg];
+}
 
                     // Also update the selected index
                     let window: id = msg_send![this, window];
@@ -1051,7 +1059,6 @@ fn create_row_view_class() -> *const Class {
             extern "C" fn mouse_exited(this: &mut Object, _: Sel, _event: id) {
                 unsafe {
                     println!("Mouse exited row");
-                    
                     // Remove hover background color
                     let layer: id = msg_send![this, layer];
                     if layer != nil {
@@ -1063,69 +1070,97 @@ fn create_row_view_class() -> *const Class {
                 }
             }
 
-            // Mouse down - launch the app
-            extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
-                unsafe {
-                    let row_index: isize = *this.get_ivar("rowIndex");
-                    println!("Mouse clicked row: {}", row_index);
+// Mouse down - launch the app
+extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
+    unsafe {
+        let row_index: isize = *this.get_ivar("rowIndex");
+        println!("Mouse clicked row: {}", row_index);
 
-                    // Get delegate data and launch the selected item
-                    let window: id = msg_send![this, window];
-                    if window == nil {
-                        return;
-                    }
+        // Get delegate data and launch the selected item
+        let window: id = msg_send![this, window];
+        if window == nil {
+            println!("Window is nil");
+            return;
+        }
 
-                    let content_view: id = msg_send![window, contentView];
-                    let subviews: id = msg_send![content_view, subviews];
-                    let count: usize = msg_send![subviews, count];
-
-                    // Find the text field
-                    let mut text_field: id = nil;
-                    for i in 0..count {
-                        let view: id = msg_send![subviews, objectAtIndex: i];
-                        let class_name: id = msg_send![view, className];
-                        let cstr: *const i8 = msg_send![class_name, UTF8String];
-                        let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy();
-                        if name == "NSTextField" {
-                            text_field = view;
-                            break;
+        let content_view: id = msg_send![window, contentView];
+        
+        // Search recursively for NSTextField (it's inside search_container)
+        fn find_text_field(view: id) -> id {
+            unsafe {
+                let subviews: id = msg_send![view, subviews];
+                let count: usize = msg_send![subviews, count];
+                for i in 0..count {
+                    let subview: id = msg_send![subviews, objectAtIndex: i];
+                    let class_name: id = msg_send![subview, className];
+                    let cstr: *const i8 = msg_send![class_name, UTF8String];
+                    let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy();
+                    if name == "NSTextField" {
+                        // Check if it's editable (the search field, not a label)
+                        let editable: bool = msg_send![subview, isEditable];
+                        if editable {
+                            return subview;
                         }
                     }
-
-                    if text_field != nil {
-                        let delegate: id = msg_send![text_field, delegate];
-                        let delegate_ptr = delegate as usize;
-
-                        let data_map = DELEGATE_DATA.lock().unwrap();
-                        if let Some(data) = data_map.as_ref().and_then(|m| m.get(&delegate_ptr)) {
-                            let filtered = data.filtered.lock().unwrap();
-                            if let Some(result) = filtered.get(row_index as usize) {
-                                println!("Launching: {} (type: {:?})", result.name, result.result_type);
-
-                                match result.result_type {
-                                    SearchMode::Apps | SearchMode::Files => {
-                                        let workspace_class = class!(NSWorkspace);
-                                        let workspace: id = msg_send![workspace_class, sharedWorkspace];
-                                        let path_string = NSString::alloc(nil).init_str(&result.path);
-                                        let _: id = msg_send![workspace, openFile: path_string];
-                                    }
-                                    SearchMode::Run => {
-                                        std::process::Command::new("sh")
-                                            .arg("-c")
-                                            .arg(&result.path)
-                                            .spawn()
-                                            .ok();
-                                    }
-                                }
-
-                                // Close window after launching
-                                let app = NSApp();
-                                let _: () = msg_send![app, terminate: nil];
-                            }
-                        }
+                    // Recurse into subviews
+                    let found = find_text_field(subview);
+                    if found != nil {
+                        return found;
                     }
                 }
+                nil
             }
+        }
+
+        let text_field = find_text_field(content_view);
+        
+        if text_field == nil {
+            println!("Text field not found!");
+            return;
+        }
+        
+        println!("Found text field");
+
+        let delegate: id = msg_send![text_field, delegate];
+        let delegate_ptr = delegate as usize;
+
+        let data_map = DELEGATE_DATA.lock().unwrap();
+        if let Some(data) = data_map.as_ref().and_then(|m| m.get(&delegate_ptr)) {
+            let filtered = data.filtered.lock().unwrap();
+            if let Some(result) = filtered.get(row_index as usize) {
+                println!("Launching: {} (type: {:?})", result.name, result.result_type);
+
+                match result.result_type {
+                    SearchMode::Apps | SearchMode::Files => {
+                        let workspace_class = class!(NSWorkspace);
+                        let workspace: id = msg_send![workspace_class, sharedWorkspace];
+                        
+                        let path_string = NSString::alloc(nil).init_str(&result.path);
+                        let url: id = msg_send![class!(NSURL), fileURLWithPath: path_string];
+                        
+                        let success: bool = msg_send![workspace, openURL: url];
+                        println!("openURL success: {}", success);
+                    }
+                    SearchMode::Run => {
+                        std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(&result.path)
+                            .spawn()
+                            .ok();
+                    }
+                }
+
+                // Close window after launching
+                let app = NSApp();
+                let _: () = msg_send![app, terminate: nil];
+            } else {
+                println!("No result at index {}", row_index);
+            }
+        } else {
+            println!("Delegate data not found");
+        }
+    }
+}
 
             // Update tracking areas to receive mouse events
             extern "C" fn update_tracking_areas(this: &mut Object, _: Sel) {
