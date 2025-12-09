@@ -5,7 +5,7 @@ use crate::{
     search_mode::{SearchMode, SearchResult},
     system_commands::search_commands,
 };
-use cocoa::appkit::{NSApp, NSButton, NSTextField};
+use cocoa::appkit::{NSApp, NSTextField};
 use cocoa::base::{id, nil, NO, YES};
 use cocoa::foundation::{NSPoint, NSRect, NSSize, NSString};
 use objc::declare::ClassDecl;
@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Once};
 
 static DELEGATE_CLASS_INIT: Once = Once::new();
-static BUTTON_ACTION_CLASS_INIT: Once = Once::new();
 static ROW_VIEW_CLASS_INIT: Once = Once::new();
 
 // Wrapper for id that implements Send (safe because all access is on main thread)
@@ -30,8 +29,8 @@ struct DelegateData {
     filtered: Arc<Mutex<Vec<SearchResult>>>, // Currently filtered/displayed results
     selected_index: Arc<Mutex<usize>>,       // Currently selected item index
     search_mode: Arc<Mutex<SearchMode>>,     // Current search mode
-    search_field: SendId,                    // Reference to search field for refreshing
-    pill_buttons: Vec<SendId>,               // References to the 3 pill buttons
+    _search_field: SendId,                   // Reference to search field for refreshing
+    _pill_buttons: Vec<SendId>,              // References to the 3 pill buttons
     config: Config,                          // Configuration for colors and fonts
 }
 
@@ -255,7 +254,7 @@ fn create_text_field_delegate_class() -> *const Class {
 
             // Handle command keys (Escape, Enter)
             extern "C" fn control_text_view_do_command_by_selector(
-                this: &Object,
+                _this: &Object,
                 _: Sel,
                 control: id,
                 _text_view: id,
@@ -725,274 +724,6 @@ fn create_text_field_delegate_class() -> *const Class {
     }
 }
 
-// Create a button action class for pill button clicks
-fn create_button_action_class() -> *const Class {
-    unsafe {
-        BUTTON_ACTION_CLASS_INIT.call_once(|| {
-            let superclass = class!(NSObject);
-            let mut decl = ClassDecl::new("PillButtonAction", superclass).unwrap();
-
-            extern "C" fn button_clicked(this: &Object, _: Sel, button: id) {
-                unsafe {
-                    // Get the button's tag to determine which mode was selected
-                    let tag: isize = msg_send![button, tag];
-                    let new_mode = match tag {
-                        0 => SearchMode::Apps,
-                        1 => SearchMode::Files,
-                        2 => SearchMode::Run,
-                        _ => SearchMode::Apps,
-                    };
-
-                    println!("Pill button clicked: {:?}", new_mode);
-
-                    // Get the button's superview (container) to find the search field
-                    let superview: id = msg_send![button, superview];
-                    let window: id = msg_send![superview, window];
-                    let content_view: id = msg_send![window, contentView];
-
-                    // Find the text field in the content view
-                    let subviews: id = msg_send![content_view, subviews];
-                    let count: usize = msg_send![subviews, count];
-                    let mut text_field: id = nil;
-                    for i in 0..count {
-                        let view: id = msg_send![subviews, objectAtIndex: i];
-                        let class_name: id = msg_send![view, className];
-                        let cstr: *const i8 = msg_send![class_name, UTF8String];
-                        let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy();
-                        if name == "NSTextField" {
-                            text_field = view;
-                            break;
-                        }
-                    }
-
-                    if text_field != nil {
-                        let delegate: id = msg_send![text_field, delegate];
-                        let delegate_ptr = delegate as usize;
-
-                        let mut data_map = DELEGATE_DATA.lock().unwrap();
-                        if let Some(data) = data_map.as_mut().and_then(|m| m.get_mut(&delegate_ptr))
-                        {
-                            // Update search mode
-                            *data.search_mode.lock().unwrap() = new_mode;
-
-                            // Update pill button styles
-                            for (idx, pill_btn) in data.pill_buttons.iter().enumerate() {
-                                let btn = pill_btn.0;
-                                if idx == tag as usize {
-                                    // Active pill - selection background color
-                                    let active_color = Config::hex_to_nscolor(
-                                        &data.config.colors.selection_background,
-                                    );
-                                    let _: () = msg_send![btn, setBackgroundColor: active_color];
-                                } else {
-                                    // Inactive pill - input background color
-                                    let inactive_color = Config::hex_to_nscolor(
-                                        &data.config.colors.input_background,
-                                    );
-                                    let _: () = msg_send![btn, setBackgroundColor: inactive_color];
-                                }
-                            }
-
-                            // Trigger a search with the current query
-                            let text: id = msg_send![text_field, stringValue];
-                            let _: () = msg_send![text_field, setStringValue: text]; // Trigger text change event
-
-                            // Manually trigger search
-                            let query_cstr: *const i8 = msg_send![text, UTF8String];
-                            let query = std::ffi::CStr::from_ptr(query_cstr).to_string_lossy();
-
-                            let filtered: Vec<SearchResult> = match new_mode {
-                                SearchMode::Apps => {
-                                    if query.is_empty() {
-                                        // Show 4 random apps when empty
-                                        use rand::seq::SliceRandom;
-                                        let mut rng = rand::thread_rng();
-                                        let apps = data.apps.lock().unwrap();
-                                        let mut app_vec: Vec<_> = apps.iter().collect();
-                                        app_vec.shuffle(&mut rng);
-                                        app_vec
-                                            .into_iter()
-                                            .take(4)
-                                            .map(|app| {
-                                                SearchResult::new(
-                                                    app.name.clone(),
-                                                    app.path.clone(),
-                                                    SearchMode::Apps,
-                                                )
-                                            })
-                                            .collect()
-                                    } else {
-                                        fuzzy_search(&data.apps.lock().unwrap(), &query)
-                                            .into_iter()
-                                            .take(8)
-                                            .map(|app| {
-                                                SearchResult::new(
-                                                    app.name,
-                                                    app.path,
-                                                    SearchMode::Apps,
-                                                )
-                                            })
-                                            .collect()
-                                    }
-                                }
-                                SearchMode::Files => {
-                                    if query.is_empty() {
-                                        search_files_random(4)
-                                    } else {
-                                        search_files(&query)
-                                    }
-                                }
-                                SearchMode::Run => search_commands(&query),
-                            };
-
-                            *data.filtered.lock().unwrap() = filtered.clone();
-                            *data.selected_index.lock().unwrap() = 0;
-
-                            // Rebuild UI
-                            let results_view = data.results_view.0;
-                            let config = data.config.clone();
-                            loop {
-                                let subviews: id = msg_send![results_view, subviews];
-                                let count: usize = msg_send![subviews, count];
-                                if count == 0 {
-                                    break;
-                                }
-                                let subview: id = msg_send![subviews, firstObject];
-                                let _: () = msg_send![subview, removeFromSuperview];
-                            }
-
-                            let selection_bg =
-                                Config::hex_to_nscolor(&config.colors.selection_background);
-                            let selection_text =
-                                Config::hex_to_nscolor(&config.colors.selection_text);
-                            let normal_text = Config::hex_to_nscolor(&config.colors.text);
-                            let workspace_class = class!(NSWorkspace);
-                            let workspace: id = msg_send![workspace_class, sharedWorkspace];
-                            let grid_columns = 5.0;
-                            let cell_width = 140.0;
-                            let cell_height = 140.0;
-                            let icon_size = 88.0;
-                            let cell_spacing = 12.0;
-                            let frame: NSRect = msg_send![results_view, frame];
-
-                            // Resize results_view to fit all items in grid
-                            let num_items = filtered.len();
-                            let num_rows = ((num_items as f64) / grid_columns).ceil();
-                            let new_height =
-                                (num_rows * (cell_height + cell_spacing)).max(frame.size.height);
-                            let new_frame = NSRect::new(
-                                NSPoint::new(0.0, 0.0),
-                                NSSize::new(frame.size.width, new_height),
-                            );
-                            let _: () = msg_send![results_view, setFrame: new_frame];
-
-                            let container_height = new_height;
-                            let row_class = create_row_view_class();
-
-                            for (index, result) in filtered.iter().enumerate() {
-                                let col = (index as f64) % grid_columns;
-                                let row = ((index as f64) / grid_columns).floor();
-                                let x_pos = col * (cell_width + cell_spacing);
-                                let y_pos =
-                                    container_height - ((row + 1.0) * (cell_height + cell_spacing));
-                                let cell_frame = NSRect::new(
-                                    NSPoint::new(x_pos, y_pos),
-                                    NSSize::new(cell_width, cell_height),
-                                );
-                                let cell_view: id = msg_send![row_class, alloc];
-                                let cell_view: id = msg_send![cell_view, initWithFrame: cell_frame];
-                                let _: () = msg_send![cell_view, setWantsLayer: 1u32];
-
-                                (*cell_view).set_ivar("rowIndex", index as isize);
-
-                                let cell_layer: id = msg_send![cell_view, layer];
-                                let _: () = msg_send![cell_layer, setCornerRadius: 10.0f64];
-                                if index == 0 {
-                                    let cg_color: id = msg_send![selection_bg, CGColor];
-                                    let _: () = msg_send![cell_layer, setBackgroundColor: cg_color];
-                                }
-
-                                if result.result_type == SearchMode::Apps
-                                    || result.result_type == SearchMode::Files
-                                {
-                                    let path_str = NSString::alloc(nil).init_str(&result.path);
-                                    let icon: id = msg_send![workspace, iconForFile: path_str];
-                                    let icon_ns_size = NSSize::new(icon_size, icon_size);
-                                    let _: () = msg_send![icon, setSize: icon_ns_size];
-                                    let icon_x = (cell_width - icon_size) / 2.0;
-                                    let icon_y = cell_height - icon_size - 16.0;
-                                    let icon_frame = NSRect::new(
-                                        NSPoint::new(icon_x, icon_y),
-                                        NSSize::new(icon_size, icon_size),
-                                    );
-                                    let icon_view: id = msg_send![class!(NSImageView), alloc];
-                                    let icon_view: id =
-                                        msg_send![icon_view, initWithFrame: icon_frame];
-                                    let _: () = msg_send![icon_view, setImage: icon];
-                                    let _: () = msg_send![icon_view, setImageScaling: 3i64];
-                                    let _: () = msg_send![cell_view, addSubview: icon_view];
-                                }
-
-                                let label_frame = NSRect::new(
-                                    NSPoint::new(4.0, 8.0),
-                                    NSSize::new(cell_width - 8.0, 28.0),
-                                );
-                                let label: id = msg_send![class!(NSTextField), alloc];
-                                let label: id = msg_send![label, initWithFrame: label_frame];
-                                let _: () = msg_send![label, setEditable: 0u32];
-                                let _: () = msg_send![label, setSelectable: 0u32];
-                                let _: () = msg_send![label, setBordered: 0u32];
-                                let _: () = msg_send![label, setDrawsBackground: 0u32];
-                                let _: () = msg_send![label, setAlignment: 1i64];
-                                let text_color = if index == 0 {
-                                    selection_text
-                                } else {
-                                    normal_text
-                                };
-                                let _: () = msg_send![label, setTextColor: text_color];
-                                let font_cls = class!(NSFont);
-                                let font: id = msg_send![font_cls, systemFontOfSize: 14.0f64];
-                                let _: () = msg_send![label, setFont: font];
-                                let name_str = NSString::alloc(nil).init_str(&result.name);
-                                let _: () = msg_send![label, setStringValue: name_str];
-                                let _: () = msg_send![label, setLineBreakMode: 4i64];
-                                let _: () = msg_send![cell_view, addSubview: label];
-                                let _: () = msg_send![results_view, addSubview: cell_view];
-                            }
-
-                            // Scroll to top after mode change
-                            let scroll_view: id = msg_send![results_view, enclosingScrollView];
-                            if scroll_view != nil {
-                                let clip_view: id = msg_send![scroll_view, contentView];
-                                let clip_bounds: NSRect = msg_send![clip_view, bounds];
-                                let doc_frame: NSRect = msg_send![results_view, frame];
-
-                                // Scroll to show the top of the document (highest y values)
-                                let scroll_point = NSPoint::new(
-                                    0.0,
-                                    (doc_frame.size.height - clip_bounds.size.height).max(0.0),
-                                );
-                                let _: () = msg_send![results_view, scrollPoint: scroll_point];
-                            }
-                        }
-                    }
-                }
-            }
-
-            unsafe {
-                decl.add_method(
-                    sel!(buttonClicked:),
-                    button_clicked as extern "C" fn(&Object, Sel, id),
-                );
-            }
-
-            decl.register();
-        });
-
-        Class::get("PillButtonAction").unwrap()
-    }
-}
-
 // Create a custom row view class that handles hover and click
 fn create_row_view_class() -> *const Class {
     unsafe {
@@ -1084,7 +815,7 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
         }
 
         let content_view: id = msg_send![window, contentView];
-        
+
         // Search recursively for NSTextField (it's inside search_container)
         fn find_text_field(view: id) -> id {
             unsafe {
@@ -1113,12 +844,12 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
         }
 
         let text_field = find_text_field(content_view);
-        
+
         if text_field == nil {
             println!("Text field not found!");
             return;
         }
-        
+
         println!("Found text field");
 
         let delegate: id = msg_send![text_field, delegate];
@@ -1134,10 +865,10 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
                     SearchMode::Apps | SearchMode::Files => {
                         let workspace_class = class!(NSWorkspace);
                         let workspace: id = msg_send![workspace_class, sharedWorkspace];
-                        
+
                         let path_string = NSString::alloc(nil).init_str(&result.path);
                         let url: id = msg_send![class!(NSURL), fileURLWithPath: path_string];
-                        
+
                         let success: bool = msg_send![workspace, openURL: url];
                         println!("openURL success: {}", success);
                     }
@@ -1229,7 +960,6 @@ impl RofiUI {
     pub fn new(window: id, apps: Vec<Application>, config: Config) -> Self {
         unsafe {
             let apps = Arc::new(Mutex::new(apps.clone()));
-            let filtered = Arc::new(Mutex::new(apps.lock().unwrap().clone()));
 
             // Get actual window dimensions
             let window_frame: NSRect = msg_send![window, frame];
@@ -1540,8 +1270,8 @@ impl RofiUI {
                     filtered: initial_filtered.clone(),
                     selected_index: Arc::new(Mutex::new(0)),
                     search_mode: search_mode.clone(),
-                    search_field: SendId(search_field),
-                    pill_buttons: pill_buttons.clone(),
+                    _search_field: SendId(search_field),
+                    _pill_buttons: pill_buttons.clone(),
                     config: config.clone(),
                 },
             );

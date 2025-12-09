@@ -1,4 +1,3 @@
-use cocoa::appkit::NSColor;
 use cocoa::base::id;
 use objc::{class, msg_send, sel, sel_impl};
 use serde::{Deserialize, Serialize};

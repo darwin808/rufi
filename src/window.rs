@@ -1,7 +1,7 @@
 use crate::config::Config;
 use cocoa::appkit::{NSBackingStoreType, NSWindow, NSWindowStyleMask};
 use cocoa::base::{id, nil};
-use cocoa::foundation::{NSPoint, NSRect, NSSize, NSString};
+use cocoa::foundation::{NSPoint, NSRect, NSSize};
 use core_graphics::display::CGDisplay;
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel, NO, YES};
@@ -117,12 +117,6 @@ impl RofiWindow {
             let _: () = msg_send![app, activateIgnoringOtherApps: 1u32];
 
             RofiWindow { window }
-        }
-    }
-
-    pub fn close(&self) {
-        unsafe {
-            let _: () = msg_send![self.window, close];
         }
     }
 }
