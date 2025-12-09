@@ -86,8 +86,4 @@ Rufi stores its configuration in `~/.config/rufi/config.json`. The configuration
 
 ## License
 
-[Add your license here]
-
-## Contributing
-
-[Add contribution guidelines here]
+MIT
