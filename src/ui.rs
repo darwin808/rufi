@@ -1124,8 +1124,11 @@ impl RofiUI {
             // Create text field starting after icon with proper spacing
             let text_field_x = icon_x + icon_size + 12.0;
             let text_field_width = window_width - text_field_x - 20.0;
-            let text_field_height = 36.0;
-            let text_field_y = (search_height - text_field_height) / 2.0 - 2.0; // Slight offset for baseline alignment
+
+            let text_field_height = 40.0;
+            let text_field_y = (search_height - text_field_height) / 2.0 - 6.0; // Adjust baseline down
+
+            
             let search_frame = NSRect::new(
                 NSPoint::new(text_field_x, text_field_y),
                 NSSize::new(text_field_width, text_field_height),
@@ -1135,18 +1138,22 @@ impl RofiUI {
             let search_field: id = msg_send![search_field_alloc, initWithFrame: search_frame];
 
             // Create placeholder
-            let placeholder_text = NSString::alloc(nil).init_str("Search");
-            let placeholder_color = Config::hex_to_nscolor("#ffffff");
-            let attrs_dict: id = msg_send![class!(NSMutableDictionary), new];
-            let foreground_key = NSString::alloc(nil).init_str("NSColor");
-            let _: () = msg_send![attrs_dict, setObject:placeholder_color forKey:foreground_key];
-            // Add font to placeholder attributes
-            let font_key = NSString::alloc(nil).init_str("NSFont");
-            let placeholder_font: id = msg_send![class!(NSFont), systemFontOfSize: 24.0f64];
-            let _: () = msg_send![attrs_dict, setObject:placeholder_font forKey:font_key];
-            let placeholder_attr: id = msg_send![class!(NSAttributedString), alloc];
-            let placeholder_attr: id = msg_send![placeholder_attr, initWithString:placeholder_text attributes:attrs_dict];
-            let _: () = msg_send![search_field, setPlaceholderAttributedString: placeholder_attr];
+let placeholder_text = NSString::alloc(nil).init_str("Search");
+let placeholder_color = Config::hex_to_nscolor("#ffffff");
+let attrs_dict: id = msg_send![class!(NSMutableDictionary), new];
+let foreground_key = NSString::alloc(nil).init_str("NSColor");
+let _: () = msg_send![attrs_dict, setObject:placeholder_color forKey:foreground_key];
+// Add font to placeholder attributes
+let font_key = NSString::alloc(nil).init_str("NSFont");
+let placeholder_font: id = msg_send![class!(NSFont), systemFontOfSize: 20.0f64];
+let _: () = msg_send![attrs_dict, setObject:placeholder_font forKey:font_key];
+// Add baseline offset to push placeholder down (negative = down)
+let baseline_key = NSString::alloc(nil).init_str("NSBaselineOffset");
+let baseline_offset: id = msg_send![class!(NSNumber), numberWithFloat: -8.0f32];
+let _: () = msg_send![attrs_dict, setObject:baseline_offset forKey:baseline_key];
+let placeholder_attr: id = msg_send![class!(NSAttributedString), alloc];
+let placeholder_attr: id = msg_send![placeholder_attr, initWithString:placeholder_text attributes:attrs_dict];
+let _: () = msg_send![search_field, setPlaceholderAttributedString: placeholder_attr];
 
             let _: () = msg_send![search_field, setBezeled: 0u32];
             let _: () = msg_send![search_field, setBordered: 0u32];
@@ -1162,7 +1169,7 @@ impl RofiUI {
             // Set font for search field
             let font_cls = class!(NSFont);
             let font_name = NSString::alloc(nil).init_str(&config.font.family);
-            let font_size = 24.0f64;
+            let font_size = 20.0f64;
             let font: id = msg_send![font_cls, fontWithName:font_name size:font_size];
             let font = if font == nil {
                 msg_send![font_cls, systemFontOfSize: font_size]
