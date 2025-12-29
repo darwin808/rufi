@@ -886,10 +886,22 @@ impl RofiUI {
             let container_layer: id = msg_send![search_container, layer];
             let _: () = msg_send![container_layer, setCornerRadius: 0.0f64]; // No rounding for full width
 
+            // Get font metrics for proper vertical alignment
+            let font_size = 20.0f64;
+            let search_font: id = msg_send![class!(NSFont), systemFontOfSize: font_size];
+            let cap_height: f64 = msg_send![search_font, capHeight];
+            let ascender: f64 = msg_send![search_font, ascender];
+            let descender: f64 = msg_send![search_font, descender]; // negative value
+            let line_height = ascender - descender;
+
+            // Calculate visual center of the search container
+            let visual_center_y = search_height / 2.0;
+
             // Add search icon using SF Symbols (magnifyingglass)
             let icon_size = 24.0;
             let icon_x = 20.0;
-            let icon_y = (search_height - icon_size) / 2.0;
+            // Center icon vertically at the visual center
+            let icon_y = visual_center_y - (icon_size / 2.0);
             let icon_frame = NSRect::new(
                 NSPoint::new(icon_x, icon_y),
                 NSSize::new(icon_size, icon_size),
@@ -914,8 +926,11 @@ impl RofiUI {
             let text_field_x = icon_x + icon_size + 10.0;
             let text_field_width = window_width - text_field_x - 20.0;
 
-            let text_field_height = 40.0;
-            let text_field_y = (search_height - text_field_height) / 2.0 - 6.0; // Adjust baseline down
+            // Size text field to fit text comfortably (cap_height + padding)
+            let text_field_height = cap_height + 16.0; // cap_height ~14pt + 16pt padding
+            // Position so text visual center aligns with icon center
+            // NSTextField renders text near bottom, so we offset to align centers
+            let text_field_y = visual_center_y - (text_field_height / 2.0);
 
             let search_frame = NSRect::new(
                 NSPoint::new(text_field_x, text_field_y),
@@ -931,14 +946,18 @@ impl RofiUI {
             let attrs_dict: id = msg_send![class!(NSMutableDictionary), new];
             let foreground_key = NSString::alloc(nil).init_str("NSColor");
             let _: () = msg_send![attrs_dict, setObject:placeholder_color forKey:foreground_key];
-            // Add font to placeholder attributes
+            // Add font to placeholder attributes (reuse search_font)
             let font_key = NSString::alloc(nil).init_str("NSFont");
-            let placeholder_font: id = msg_send![class!(NSFont), systemFontOfSize: 20.0f64];
-            let _: () = msg_send![attrs_dict, setObject:placeholder_font forKey:font_key];
-            // Add baseline offset to push placeholder down (negative = down)
+            let _: () = msg_send![attrs_dict, setObject:search_font forKey:font_key];
+
+            // Calculate baseline offset to align placeholder with typed text position
+            // Placeholder renders higher than typed text in NSTextField, so we push it down
+            // Account for both the field padding and the descender space
+            let placeholder_baseline_offset = -((text_field_height - line_height) / 2.0 + descender.abs());
             let baseline_key = NSString::alloc(nil).init_str("NSBaselineOffset");
-            let baseline_offset: id = msg_send![class!(NSNumber), numberWithFloat: -8.0f32];
-            let _: () = msg_send![attrs_dict, setObject:baseline_offset forKey:baseline_key];
+            let baseline_value: id = msg_send![class!(NSNumber), numberWithDouble: placeholder_baseline_offset];
+            let _: () = msg_send![attrs_dict, setObject:baseline_value forKey:baseline_key];
+
             let placeholder_attr: id = msg_send![class!(NSAttributedString), alloc];
             let placeholder_attr: id =
                 msg_send![placeholder_attr, initWithString:placeholder_text attributes:attrs_dict];

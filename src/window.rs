@@ -2,7 +2,6 @@ use crate::config::Config;
 use cocoa::appkit::{NSBackingStoreType, NSWindow, NSWindowStyleMask};
 use cocoa::base::{id, nil};
 use cocoa::foundation::{NSPoint, NSRect, NSSize};
-use core_graphics::display::CGDisplay;
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel, NO, YES};
 use objc::{class, msg_send, sel, sel_impl};
@@ -49,10 +48,11 @@ pub struct RofiWindow {
 impl RofiWindow {
     pub fn new(config: &Config) -> Self {
         unsafe {
-            // Get main display dimensions and calculate window size for 5x3 grid
-            let display = CGDisplay::main();
-            let screen_width = display.pixels_wide() as f64;
-            let screen_height = display.pixels_high() as f64;
+            // Get main display dimensions in points (not pixels) for resolution-independent sizing
+            let main_screen: id = msg_send![class!(NSScreen), mainScreen];
+            let screen_frame: NSRect = msg_send![main_screen, frame];
+            let screen_width = screen_frame.size.width;
+            let screen_height = screen_frame.size.height;
 
             // Calculate width to fit 5 columns: 5 cells(140px each) + 4 gaps(12px) + padding(48px) = ~796px
             let min_width: f64 = 800.0;
