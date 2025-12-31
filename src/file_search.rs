@@ -1,9 +1,15 @@
 use crate::search_mode::SearchResult;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-use rand::seq::SliceRandom;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+static MATCHER: OnceLock<SkimMatcherV2> = OnceLock::new();
+
+fn get_matcher() -> &'static SkimMatcherV2 {
+    MATCHER.get_or_init(SkimMatcherV2::default)
+}
 
 fn search_recursive(
     dir: &Path,
@@ -81,7 +87,7 @@ pub fn search_files(query: &str) -> Vec<SearchResult> {
     search_recursive(&home, query, &mut results, 50, 4, 0);
 
     // Apply fuzzy matching on results
-    let matcher = SkimMatcherV2::default();
+    let matcher = get_matcher();
     let mut scored: Vec<_> = results
         .into_iter()
         .filter_map(|result| {
@@ -135,8 +141,6 @@ pub fn search_files_random(count: usize) -> Vec<SearchResult> {
         }
     }
 
-    // Shuffle and return requested count
-    let mut rng = rand::thread_rng();
-    results.shuffle(&mut rng);
+    // Return first N files (deterministic)
     results.into_iter().take(count).collect()
 }

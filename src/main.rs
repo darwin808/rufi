@@ -7,53 +7,73 @@ mod system_commands;
 mod ui;
 mod window;
 
-use clap::Parser;
 use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular};
+use lexopt::prelude::*;
 use objc::{msg_send, sel, sel_impl};
 use std::sync::Once;
 
 static INIT: Once = Once::new();
 
-/// Rufi - A minimal macOS application launcher with gruvbox theme
-#[derive(Parser, Debug)]
-#[command(name = "rufi")]
-#[command(about = "A minimal macOS application launcher", long_about = None)]
 struct Args {
-    /// Window width (overrides config)
-    #[arg(short = 'w', long)]
     width: Option<u32>,
-
-    /// Window height (overrides config)
-    #[arg(long)]
     height: Option<u32>,
-
-    /// Font size (overrides config)
-    #[arg(short = 's', long)]
     font_size: Option<f64>,
-
-    /// Font family (overrides config)
-    #[arg(short = 'f', long)]
     font_family: Option<String>,
-
-    /// Background color (hex, e.g., #282828)
-    #[arg(long)]
     bg_color: Option<String>,
-
-    /// Text color (hex, e.g., #ebdbb2)
-    #[arg(long)]
     text_color: Option<String>,
-
-    /// Selection background color (hex, e.g., #d79921)
-    #[arg(long)]
     selection_color: Option<String>,
-
-    /// Theme (gruvbox, 8bit, catppuccin)
-    #[arg(short = 't', long)]
     theme: Option<String>,
 }
 
+fn parse_args() -> Result<Args, lexopt::Error> {
+    let mut args = Args {
+        width: None,
+        height: None,
+        font_size: None,
+        font_family: None,
+        bg_color: None,
+        text_color: None,
+        selection_color: None,
+        theme: None,
+    };
+
+    let mut parser = lexopt::Parser::from_env();
+    while let Some(arg) = parser.next()? {
+        match arg {
+            Short('w') | Long("width") => args.width = Some(parser.value()?.parse()?),
+            Long("height") => args.height = Some(parser.value()?.parse()?),
+            Short('s') | Long("font-size") => args.font_size = Some(parser.value()?.parse()?),
+            Short('f') | Long("font-family") => args.font_family = Some(parser.value()?.parse()?),
+            Long("bg-color") => args.bg_color = Some(parser.value()?.parse()?),
+            Long("text-color") => args.text_color = Some(parser.value()?.parse()?),
+            Long("selection-color") => args.selection_color = Some(parser.value()?.parse()?),
+            Short('t') | Long("theme") => args.theme = Some(parser.value()?.parse()?),
+            Long("help") => {
+                eprintln!("rufi - A minimal macOS application launcher\n");
+                eprintln!("USAGE: rufi [OPTIONS]\n");
+                eprintln!("OPTIONS:");
+                eprintln!("  -w, --width <WIDTH>         Window width");
+                eprintln!("      --height <HEIGHT>       Window height");
+                eprintln!("  -s, --font-size <SIZE>      Font size");
+                eprintln!("  -f, --font-family <FONT>    Font family");
+                eprintln!("      --bg-color <HEX>        Background color");
+                eprintln!("      --text-color <HEX>      Text color");
+                eprintln!("      --selection-color <HEX> Selection color");
+                eprintln!("  -t, --theme <THEME>         Theme (gruvbox, 8bit, catppuccin, modern)");
+                eprintln!("      --help                  Show this help");
+                std::process::exit(0);
+            }
+            _ => return Err(arg.unexpected()),
+        }
+    }
+    Ok(args)
+}
+
 fn main() {
-    let args = Args::parse();
+    let args = parse_args().unwrap_or_else(|e| {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    });
 
     unsafe {
         let app = NSApp();
@@ -101,9 +121,7 @@ fn main() {
         }
 
         // Index applications (do this first before creating window)
-        println!("Indexing applications...");
         let apps = app_search::index_applications();
-        println!("Found {} apps", apps.len());
 
         // Create borderless window
         let window = window::RofiWindow::new(&config);
@@ -116,8 +134,6 @@ fn main() {
 
         // Activate and run
         let _: () = msg_send![app, activateIgnoringOtherApps: 1u32];
-
-        println!("Running app...");
         app.run();
     }
 }

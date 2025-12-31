@@ -8,6 +8,7 @@ use crate::{
 use cocoa::appkit::{NSApp, NSTextField};
 use cocoa::base::{id, nil, NO, YES};
 use cocoa::foundation::{NSPoint, NSRect, NSSize, NSString};
+use core_graphics::geometry::CGSize;
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
@@ -17,11 +18,11 @@ use std::sync::{Arc, Mutex, Once};
 static DELEGATE_CLASS_INIT: Once = Once::new();
 static ROW_VIEW_CLASS_INIT: Once = Once::new();
 
-// Grid layout constants
+// Grid layout constants - ultraclean aesthetic
 const GRID_COLUMNS: f64 = 5.0;
-const CELL_WIDTH: f64 = 140.0;
-const CELL_HEIGHT: f64 = 140.0;
-const ICON_SIZE: f64 = 88.0;
+const CELL_WIDTH: f64 = 116.0;
+const CELL_HEIGHT: f64 = 100.0;
+const ICON_SIZE: f64 = 48.0;
 const CELL_SPACING: f64 = 12.0;
 
 // Global config storage for hover callbacks
@@ -42,7 +43,6 @@ struct DelegateData {
     _search_field: SendId,                   // Reference to search field for refreshing
     _pill_buttons: Vec<SendId>,              // References to the 3 pill buttons
     config: Config,                          // Configuration for colors and fonts
-    count_label: Option<SendId>,             // Optional result count label
 }
 
 static DELEGATE_DATA: Mutex<Option<HashMap<usize, DelegateData>>> = Mutex::new(None);
@@ -73,8 +73,6 @@ fn create_text_field_delegate_class() -> *const Class {
                     let query_cstr: *const i8 = msg_send![text, UTF8String];
                     let query = std::ffi::CStr::from_ptr(query_cstr).to_string_lossy();
 
-                    println!("Search query: {}", query);
-
                     // Get current search mode
                     let mode = *data.search_mode.lock().unwrap();
 
@@ -82,15 +80,10 @@ fn create_text_field_delegate_class() -> *const Class {
                     let filtered: Vec<SearchResult> = match mode {
                         SearchMode::Apps => {
                             if query.is_empty() {
-                                // Show 4 random apps when empty
-                                use rand::seq::SliceRandom;
-                                let mut rng = rand::thread_rng();
+                                // Show first 15 apps when empty (already sorted alphabetically)
                                 let apps = data.apps.lock().unwrap();
-                                let mut app_vec: Vec<_> = apps.iter().collect();
-                                app_vec.shuffle(&mut rng);
-                                app_vec
-                                    .into_iter()
-                                    .take(4)
+                                apps.iter()
+                                    .take(15)
                                     .map(|app| {
                                         SearchResult::new(
                                             app.name.clone(),
@@ -124,23 +117,6 @@ fn create_text_field_delegate_class() -> *const Class {
                     *data.filtered.lock().unwrap() = filtered.clone();
                     *data.selected_index.lock().unwrap() = 0;
 
-                    // Update count label if present
-                    if let Some(count_label) = data.count_label {
-                        let mode = *data.search_mode.lock().unwrap();
-                        let mode_name = match mode {
-                            SearchMode::Apps => "apps",
-                            SearchMode::Files => "files",
-                            SearchMode::Run => "commands",
-                        };
-                        let count_text = if filtered.is_empty() {
-                            String::from("")
-                        } else {
-                            format!("Showing {} {}", filtered.len(), mode_name)
-                        };
-                        let count_str = NSString::alloc(nil).init_str(&count_text);
-                        let _: () = msg_send![count_label.0, setStringValue: count_str];
-                    }
-
                     // Rebuild the results view
                     let results_view = data.results_view.0;
                     let config = data.config.clone();
@@ -164,9 +140,6 @@ fn create_text_field_delegate_class() -> *const Class {
                     let sel_name = sel_getName(command_selector);
                     let sel_str = std::ffi::CStr::from_ptr(sel_name).to_string_lossy();
 
-                    // Debug: print all selectors received
-                    println!("Selector received: {}", sel_str);
-
                     // Escape key triggers "cancelOperation:"
                     if sel_str == "cancelOperation:" {
                         let app = NSApp();
@@ -185,11 +158,6 @@ fn create_text_field_delegate_class() -> *const Class {
                             let filtered = data.filtered.lock().unwrap();
                             let selected_idx = *data.selected_index.lock().unwrap();
                             if let Some(result) = filtered.get(selected_idx) {
-                                println!(
-                                    "Launching: {} (type: {:?})",
-                                    result.name, result.result_type
-                                );
-
                                 match result.result_type {
                                     SearchMode::Apps | SearchMode::Files => {
                                         // Launch application or open file using NSWorkspace
@@ -218,7 +186,7 @@ fn create_text_field_delegate_class() -> *const Class {
                                     }
                                 }
 
-                                // Close rofi-mac after launching
+                                // Exit after launching
                                 let app = NSApp();
                                 let _: () = msg_send![app, terminate: nil];
                             }
@@ -229,7 +197,6 @@ fn create_text_field_delegate_class() -> *const Class {
 
                     // Arrow Down triggers "moveDown:" - move to next row (5 items)
                     if sel_str == "moveDown:" {
-                        println!("Arrow Down pressed");
                         let delegate: id = msg_send![control, delegate];
                         let delegate_ptr = delegate as usize;
 
@@ -247,7 +214,6 @@ fn create_text_field_delegate_class() -> *const Class {
                                 // Wrap: go to same column in first row
                                 *selected_idx = *selected_idx % grid_cols;
                             }
-                            println!("Selection moved to: {}", *selected_idx);
                             drop(selected_idx);
 
                             let results_view = data.results_view.0;
@@ -263,7 +229,6 @@ fn create_text_field_delegate_class() -> *const Class {
 
                     // Arrow Up triggers "moveUp:" - move to previous row (5 items)
                     if sel_str == "moveUp:" {
-                        println!("Arrow Up pressed");
                         let delegate: id = msg_send![control, delegate];
                         let delegate_ptr = delegate as usize;
 
@@ -281,7 +246,6 @@ fn create_text_field_delegate_class() -> *const Class {
                                 let target = last_row_start + (*selected_idx % grid_cols);
                                 *selected_idx = target.min(filtered_count.saturating_sub(1));
                             }
-                            println!("Selection moved to: {}", *selected_idx);
                             drop(selected_idx);
 
                             let results_view = data.results_view.0;
@@ -297,7 +261,6 @@ fn create_text_field_delegate_class() -> *const Class {
 
                     // Arrow Right triggers "moveRight:" - move to next item
                     if sel_str == "moveRight:" {
-                        println!("Arrow Right pressed");
                         let delegate: id = msg_send![control, delegate];
                         let delegate_ptr = delegate as usize;
 
@@ -312,7 +275,6 @@ fn create_text_field_delegate_class() -> *const Class {
                                 // Wrap to first item
                                 *selected_idx = 0;
                             }
-                            println!("Selection moved to: {}", *selected_idx);
                             let new_selected = *selected_idx;
                             drop(selected_idx);
 
@@ -365,7 +327,6 @@ fn create_text_field_delegate_class() -> *const Class {
 
                     // Arrow Left triggers "moveLeft:" - move to previous item
                     if sel_str == "moveLeft:" {
-                        println!("Arrow Left pressed");
                         let delegate: id = msg_send![control, delegate];
                         let delegate_ptr = delegate as usize;
 
@@ -380,7 +341,6 @@ fn create_text_field_delegate_class() -> *const Class {
                                 // Wrap to last item
                                 *selected_idx = filtered_count.saturating_sub(1);
                             }
-                            println!("Selection moved to: {}", *selected_idx);
                             let new_selected = *selected_idx;
                             drop(selected_idx);
 
@@ -469,7 +429,6 @@ fn create_row_view_class() -> *const Class {
             extern "C" fn mouse_entered(this: &mut Object, _: Sel, _event: id) {
                 unsafe {
                     let row_index: isize = *this.get_ivar("rowIndex");
-                    println!("Mouse entered row: {}", row_index);
 
                     // Apply hover background color from config
                     let layer: id = msg_send![this, layer];
@@ -525,7 +484,6 @@ fn create_row_view_class() -> *const Class {
             // Mouse exited - remove hover highlight
             extern "C" fn mouse_exited(this: &mut Object, _: Sel, _event: id) {
                 unsafe {
-                    println!("Mouse exited row");
                     // Remove hover background color
                     let layer: id = msg_send![this, layer];
                     if layer != nil {
@@ -541,12 +499,10 @@ fn create_row_view_class() -> *const Class {
 extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
     unsafe {
         let row_index: isize = *this.get_ivar("rowIndex");
-        println!("Mouse clicked row: {}", row_index);
 
         // Get delegate data and launch the selected item
         let window: id = msg_send![this, window];
         if window == nil {
-            println!("Window is nil");
             return;
         }
 
@@ -582,11 +538,8 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
         let text_field = find_text_field(content_view);
 
         if text_field == nil {
-            println!("Text field not found!");
             return;
         }
-
-        println!("Found text field");
 
         let delegate: id = msg_send![text_field, delegate];
         let delegate_ptr = delegate as usize;
@@ -595,8 +548,6 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
         if let Some(data) = data_map.as_ref().and_then(|m| m.get(&delegate_ptr)) {
             let filtered = data.filtered.lock().unwrap();
             if let Some(result) = filtered.get(row_index as usize) {
-                println!("Launching: {} (type: {:?})", result.name, result.result_type);
-
                 match result.result_type {
                     SearchMode::Apps | SearchMode::Files => {
                         let workspace_class = class!(NSWorkspace);
@@ -605,8 +556,7 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
                         let path_string = NSString::alloc(nil).init_str(&result.path);
                         let url: id = msg_send![class!(NSURL), fileURLWithPath: path_string];
 
-                        let success: bool = msg_send![workspace, openURL: url];
-                        println!("openURL success: {}", success);
+                        let _: bool = msg_send![workspace, openURL: url];
                     }
                     SearchMode::Run => {
                         std::process::Command::new("sh")
@@ -617,14 +567,10 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
                     }
                 }
 
-                // Close window after launching
+                // Exit after launching
                 let app = NSApp();
                 let _: () = msg_send![app, terminate: nil];
-            } else {
-                println!("No result at index {}", row_index);
             }
-        } else {
-            println!("Delegate data not found");
         }
     }
 }
@@ -772,13 +718,40 @@ unsafe fn rebuild_results_grid(
         (*cell_view).set_ivar("rowIndex", index as isize);
 
         let cell_layer: id = msg_send![cell_view, layer];
-        let _: () = msg_send![cell_layer, setCornerRadius: 10.0f64];
+        let _: () = msg_send![cell_layer, setCornerRadius: 14.0f64];
+        let _: () = msg_send![cell_layer, setMasksToBounds: NO];
+
+        // Ultraclean: minimal styling, emphasis on selection
         if index == selected_index {
-            let cg_color: id = msg_send![selection_bg, CGColor];
-            let _: () = msg_send![cell_layer, setBackgroundColor: cg_color];
+            // Selected: elevated card with glow
+            let selected_bg = Config::hex_to_nscolor("#32302f");
+            let cg_selected_bg: id = msg_send![selected_bg, CGColor];
+            let _: () = msg_send![cell_layer, setBackgroundColor: cg_selected_bg];
+
+            // Accent border
+            let accent = Config::hex_to_nscolor("#d65d0e"); // Gruvbox orange dark
+            let cg_accent: id = msg_send![accent, CGColor];
+            let _: () = msg_send![cell_layer, setBorderColor: cg_accent];
+            let _: () = msg_send![cell_layer, setBorderWidth: 2.0f64];
+
+            // Glow shadow
+            let glow_color = Config::hex_to_nscolor("#d65d0e");
+            let cg_glow: id = msg_send![glow_color, CGColor];
+            let _: () = msg_send![cell_layer, setShadowColor: cg_glow];
+            let _: () = msg_send![cell_layer, setShadowOpacity: 0.4f32];
+            let _: () = msg_send![cell_layer, setShadowRadius: 12.0f64];
+            let shadow_offset = CGSize { width: 0.0, height: 0.0 };
+            let _: () = msg_send![cell_layer, setShadowOffset: shadow_offset];
+        } else {
+            // Unselected: clean, no border, subtle bg
+            let cell_bg = Config::hex_to_nscolor("#252423");
+            let cg_cell_bg: id = msg_send![cell_bg, CGColor];
+            let _: () = msg_send![cell_layer, setBackgroundColor: cg_cell_bg];
+            let _: () = msg_send![cell_layer, setBorderWidth: 0.0f64];
+            let _: () = msg_send![cell_layer, setShadowOpacity: 0.0f32];
         }
 
-        // Icon centered at top (for Apps and Files)
+        // Icon centered (for Apps and Files)
         if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
             let path_str = NSString::alloc(nil).init_str(&result.path);
             let icon: id = msg_send![workspace, iconForFile: path_str];
@@ -793,30 +766,35 @@ unsafe fn rebuild_results_grid(
             let icon_view: id = msg_send![class!(NSImageView), alloc];
             let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
             let _: () = msg_send![icon_view, setImage: icon];
-            let _: () = msg_send![icon_view, setImageScaling: 3i64]; // NSImageScaleProportionallyUpOrDown
+            let _: () = msg_send![icon_view, setImageScaling: 3i64];
             let _: () = msg_send![cell_view, addSubview: icon_view];
         }
 
-        // Label centered below
-        let label_frame = NSRect::new(NSPoint::new(4.0, 8.0), NSSize::new(CELL_WIDTH - 8.0, 28.0));
+        // Label - clean, readable
+        let label_frame = NSRect::new(NSPoint::new(4.0, 6.0), NSSize::new(CELL_WIDTH - 8.0, 22.0));
         let label: id = msg_send![class!(NSTextField), alloc];
         let label: id = msg_send![label, initWithFrame: label_frame];
         let _: () = msg_send![label, setEditable: 0u32];
         let _: () = msg_send![label, setSelectable: 0u32];
         let _: () = msg_send![label, setBordered: 0u32];
         let _: () = msg_send![label, setDrawsBackground: 0u32];
-        let _: () = msg_send![label, setAlignment: 1i64]; // Center
+        let _: () = msg_send![label, setAlignment: 1i64];
+
+        // Text color: bright when selected, muted otherwise
         let text_color = if index == selected_index {
-            selection_text
+            Config::hex_to_nscolor("#fbf1c7") // Gruvbox light
         } else {
-            normal_text
+            Config::hex_to_nscolor("#a89984") // Gruvbox gray (brighter)
         };
         let _: () = msg_send![label, setTextColor: text_color];
-        let font: id = msg_send![class!(NSFont), systemFontOfSize: 14.0f64];
+
+        // Readable font size
+        let font_cls = class!(NSFont);
+        let font: id = msg_send![font_cls, systemFontOfSize:12.0f64 weight:0.0f64];
         let _: () = msg_send![label, setFont: font];
         let name_str = NSString::alloc(nil).init_str(&result.name);
         let _: () = msg_send![label, setStringValue: name_str];
-        let _: () = msg_send![label, setLineBreakMode: 4i64]; // Truncate tail
+        let _: () = msg_send![label, setLineBreakMode: 4i64];
 
         let _: () = msg_send![cell_view, addSubview: label];
         let _: () = msg_send![results_view, addSubview: cell_view];
@@ -863,15 +841,12 @@ impl RofiUI {
             let window_width = window_frame.size.width;
             let window_height = window_frame.size.height;
 
-            // Modern UI: Create search container with icon
-            let search_padding = 0.0; // Full width
-            let search_height = 70.0; // Taller for larger text
+            // Ultraclean search bar
+            let search_height = 52.0;
+            let search_padding = 28.0;
             let search_container_frame = NSRect::new(
-                NSPoint::new(
-                    search_padding,
-                    window_height - search_height - search_padding,
-                ),
-                NSSize::new(window_width - (search_padding * 2.0), search_height),
+                NSPoint::new(0.0, window_height - search_height),
+                NSSize::new(window_width, search_height),
             );
 
             // Create search container view
@@ -880,57 +855,52 @@ impl RofiUI {
                 msg_send![search_container, initWithFrame: search_container_frame];
             let _: () = msg_send![search_container, setWantsLayer: 1u32];
 
-            // Background for search container
-            let input_bg_color = Config::hex_to_nscolor(&config.colors.input_background);
-            let _: () = msg_send![search_container, setBackgroundColor: input_bg_color];
-            let container_layer: id = msg_send![search_container, layer];
-            let _: () = msg_send![container_layer, setCornerRadius: 0.0f64]; // No rounding for full width
+            // Same as window bg - seamless
+            let search_layer: id = msg_send![search_container, layer];
 
-            // Get font metrics for proper vertical alignment
-            let font_size = 20.0f64;
-            let search_font: id = msg_send![class!(NSFont), systemFontOfSize: font_size];
-            let cap_height: f64 = msg_send![search_font, capHeight];
-            let ascender: f64 = msg_send![search_font, ascender];
-            let descender: f64 = msg_send![search_font, descender]; // negative value
-            let line_height = ascender - descender;
-
-            // Calculate visual center of the search container
-            let visual_center_y = search_height / 2.0;
-
-            // Add search icon using SF Symbols (magnifyingglass)
-            let icon_size = 24.0;
-            let icon_x = 20.0;
-            // Center icon vertically at the visual center
-            let icon_y = visual_center_y - (icon_size / 2.0);
-            let icon_frame = NSRect::new(
-                NSPoint::new(icon_x, icon_y),
-                NSSize::new(icon_size, icon_size),
+            // Bottom separator line
+            let separator_frame = NSRect::new(
+                NSPoint::new(search_padding, 0.0),
+                NSSize::new(window_width - (search_padding * 2.0), 1.0),
             );
+            let separator: id = msg_send![class!(NSView), alloc];
+            let separator: id = msg_send![separator, initWithFrame: separator_frame];
+            let _: () = msg_send![separator, setWantsLayer: 1u32];
+            let sep_layer: id = msg_send![separator, layer];
+            let sep_color = Config::hex_to_nscolor("#3c3836");
+            let cg_sep: id = msg_send![sep_color, CGColor];
+            let _: () = msg_send![sep_layer, setBackgroundColor: cg_sep];
+            let _: () = msg_send![search_container, addSubview: separator];
 
-            // Create NSImage from SF Symbol with specific point size
-            let symbol_name = NSString::alloc(nil).init_str("magnifyingglass");
-            let symbol_config: id = msg_send![class!(NSImageSymbolConfiguration), configurationWithPointSize:28.0f64 weight:1i64];
-            let symbol_image: id = msg_send![class!(NSImage), imageWithSystemSymbolName:symbol_name accessibilityDescription:nil];
-            let sized_image: id =
-                msg_send![symbol_image, imageWithSymbolConfiguration:symbol_config];
+            // Clean system font for search
+            let font_size = 18.0f64;
+            let font_cls = class!(NSFont);
+            let search_font: id = msg_send![font_cls, systemFontOfSize:font_size weight:-0.3f64];
 
-            // Create image view
-            let icon_view: id = msg_send![class!(NSImageView), alloc];
-            let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
-            let _: () = msg_send![icon_view, setImage: sized_image];
-            let _: () =
-                msg_send![icon_view, setContentTintColor: Config::hex_to_nscolor("#ffffff")];
-            let _: () = msg_send![search_container, addSubview: icon_view];
+            // Prompt - matches search font
+            let prompt_width = 20.0;
+            let prompt_frame = NSRect::new(
+                NSPoint::new(search_padding, (search_height - 24.0) / 2.0),
+                NSSize::new(prompt_width, 24.0),
+            );
+            let prompt_label: id = msg_send![class!(NSTextField), alloc];
+            let prompt_label: id = msg_send![prompt_label, initWithFrame: prompt_frame];
+            let _: () = msg_send![prompt_label, setEditable: 0u32];
+            let _: () = msg_send![prompt_label, setSelectable: 0u32];
+            let _: () = msg_send![prompt_label, setBordered: 0u32];
+            let _: () = msg_send![prompt_label, setDrawsBackground: 0u32];
+            let prompt_str = NSString::alloc(nil).init_str(">");
+            let _: () = msg_send![prompt_label, setStringValue: prompt_str];
+            let prompt_color = Config::hex_to_nscolor("#d65d0e"); // Gruvbox orange
+            let _: () = msg_send![prompt_label, setTextColor: prompt_color];
+            let _: () = msg_send![prompt_label, setFont: search_font];
+            let _: () = msg_send![search_container, addSubview: prompt_label];
 
-            // Create text field starting after icon with proper spacing
-            let text_field_x = icon_x + icon_size + 10.0;
-            let text_field_width = window_width - text_field_x - 20.0;
-
-            // Size text field to fit text comfortably (cap_height + padding)
-            let text_field_height = cap_height + 16.0; // cap_height ~14pt + 16pt padding
-            // Position so text visual center aligns with icon center
-            // NSTextField renders text near bottom, so we offset to align centers
-            let text_field_y = visual_center_y - (text_field_height / 2.0);
+            // Create text field after prompt
+            let text_field_x = search_padding + prompt_width + 8.0;
+            let text_field_width = window_width - text_field_x - search_padding;
+            let text_field_height = 24.0;
+            let text_field_y = (search_height - text_field_height) / 2.0;
 
             let search_frame = NSRect::new(
                 NSPoint::new(text_field_x, text_field_y),
@@ -940,23 +910,14 @@ impl RofiUI {
             let search_field_alloc = NSTextField::alloc(nil);
             let search_field: id = msg_send![search_field_alloc, initWithFrame: search_frame];
 
-            // Create placeholder
-            let placeholder_text = NSString::alloc(nil).init_str("Search");
-            let placeholder_color = Config::hex_to_nscolor("#ffffff");
+            // Minimal placeholder
+            let placeholder_text = NSString::alloc(nil).init_str("type to search");
+            let placeholder_color = Config::hex_to_nscolor("#504945");
             let attrs_dict: id = msg_send![class!(NSMutableDictionary), new];
             let foreground_key = NSString::alloc(nil).init_str("NSColor");
             let _: () = msg_send![attrs_dict, setObject:placeholder_color forKey:foreground_key];
-            // Add font to placeholder attributes (reuse search_font)
             let font_key = NSString::alloc(nil).init_str("NSFont");
             let _: () = msg_send![attrs_dict, setObject:search_font forKey:font_key];
-
-            // Calculate baseline offset to align placeholder with typed text position
-            // Placeholder renders higher than typed text in NSTextField, so we push it down
-            // Account for both the field padding and the descender space
-            let placeholder_baseline_offset = -((text_field_height - line_height) / 2.0 + descender.abs());
-            let baseline_key = NSString::alloc(nil).init_str("NSBaselineOffset");
-            let baseline_value: id = msg_send![class!(NSNumber), numberWithDouble: placeholder_baseline_offset];
-            let _: () = msg_send![attrs_dict, setObject:baseline_value forKey:baseline_key];
 
             let placeholder_attr: id = msg_send![class!(NSAttributedString), alloc];
             let placeholder_attr: id =
@@ -967,32 +928,21 @@ impl RofiUI {
             let _: () = msg_send![search_field, setBordered: 0u32];
             let _: () = msg_send![search_field, setEditable: 1u32];
             let _: () = msg_send![search_field, setSelectable: 1u32];
-            let _: () = msg_send![search_field, setDrawsBackground: 0u32]; // Transparent
-            let _: () = msg_send![search_field, setFocusRingType: 1u32]; // NSFocusRingTypeNone = 1
+            let _: () = msg_send![search_field, setDrawsBackground: 0u32];
+            let _: () = msg_send![search_field, setFocusRingType: 1u32];
 
-            // White text on tan background
-            let text_color = Config::hex_to_nscolor("#ffffff");
+            // Warm text color
+            let text_color = Config::hex_to_nscolor("#ebdbb2");
             let _: () = msg_send![search_field, setTextColor: text_color];
+            let _: () = msg_send![search_field, setFont: search_font];
 
-            // Set font for search field
-            let font_cls = class!(NSFont);
-            let font_name = NSString::alloc(nil).init_str(&config.font.family);
-            let font_size = 20.0f64;
-            let font: id = msg_send![font_cls, fontWithName:font_name size:font_size];
-            let font = if font == nil {
-                msg_send![font_cls, systemFontOfSize: font_size]
-            } else {
-                font
-            };
-            let _: () = msg_send![search_field, setFont: font];
-
-            // Configure cell for single-line input
+            // Configure cell
             let _: () = msg_send![search_field, setAlignment: 0i64];
             let cell: id = msg_send![search_field, cell];
             let _: () = msg_send![cell, setUsesSingleLineMode: 1u32];
             let _: () = msg_send![cell, setScrollable: 1u32];
             let _: () = msg_send![cell, setLineBreakMode: 4i64];
-            let _: () = msg_send![cell, setFocusRingType: 1u32]; // NSFocusRingTypeNone = 1
+            let _: () = msg_send![cell, setFocusRingType: 1u32];
             let _: () = msg_send![search_field, setRefusesFirstResponder: 0u32];
 
             let _: () = msg_send![search_container, addSubview: search_field];
@@ -1001,51 +951,18 @@ impl RofiUI {
             let content_view: id = msg_send![window, contentView];
             let _: () = msg_send![content_view, addSubview: search_container];
 
-            // Add result count indicator (right side of search container)
-            let count_label_width = 150.0;
-            let count_label_height = 20.0;
-            let count_label_frame = NSRect::new(
-                NSPoint::new(
-                    window_width - count_label_width - 20.0,
-                    window_height - search_height + (search_height - count_label_height) / 2.0,
-                ),
-                NSSize::new(count_label_width, count_label_height),
-            );
-            let count_label: id = msg_send![class!(NSTextField), alloc];
-            let count_label: id = msg_send![count_label, initWithFrame: count_label_frame];
-            let _: () = msg_send![count_label, setEditable: 0u32];
-            let _: () = msg_send![count_label, setSelectable: 0u32];
-            let _: () = msg_send![count_label, setBordered: 0u32];
-            let _: () = msg_send![count_label, setDrawsBackground: 0u32];
-            let _: () = msg_send![count_label, setAlignment: 2i64]; // Right align
-                                                                    // Dimmed text (50% opacity)
-            let count_color: id =
-                msg_send![Config::hex_to_nscolor("#ffffff"), colorWithAlphaComponent: 0.5f64];
-            let _: () = msg_send![count_label, setTextColor: count_color];
-            let count_font: id = msg_send![class!(NSFont), systemFontOfSize: 12.0f64];
-            let _: () = msg_send![count_label, setFont: count_font];
-            let initial_count_str = NSString::alloc(nil).init_str("Showing 15 apps");
-            let _: () = msg_send![count_label, setStringValue: initial_count_str];
-            let _: () = msg_send![content_view, addSubview: count_label];
-
-            // Pill buttons removed for cleaner UI matching reference design
-            let pill_height = 0.0; // No pill buttons
+            // No count label - clean style
             let pill_buttons: Vec<SendId> = Vec::new();
 
-            // Modern grid view with icons - Create container for app cells
-            let results_padding = 24.0;
-            let results_top_margin = 8.0;
+            // Grid layout
+            let results_padding = 28.0;
+            let hints_area = 28.0;
 
             let results_container_frame = NSRect::new(
-                NSPoint::new(results_padding, results_padding),
+                NSPoint::new(results_padding, hints_area),
                 NSSize::new(
                     window_width - (results_padding * 2.0),
-                    window_height
-                        - search_height
-                        - pill_height
-                        - results_padding
-                        - results_top_margin
-                        - 32.0,
+                    window_height - search_height - hints_area - 12.0,
                 ),
             );
 
@@ -1069,14 +986,10 @@ impl RofiUI {
             // Set the results view as the document view of the scroll view
             let _: () = msg_send![scroll_view, setDocumentView: results_view];
 
-            // Show 15 random apps initially (3 rows x 5 columns)
-            use rand::seq::SliceRandom;
-            let mut rng = rand::thread_rng();
+            // Show first 15 apps initially (3 rows x 5 columns, sorted alphabetically)
             let apps_locked = apps.lock().unwrap();
-            let mut app_vec: Vec<_> = apps_locked.iter().collect();
-            app_vec.shuffle(&mut rng);
-            let initial_apps: Vec<SearchResult> = app_vec
-                .into_iter()
+            let initial_apps: Vec<SearchResult> = apps_locked
+                .iter()
                 .take(15)
                 .map(|app| SearchResult::new(app.name.clone(), app.path.clone(), SearchMode::Apps))
                 .collect();
@@ -1087,10 +1000,10 @@ impl RofiUI {
 
             let _: () = msg_send![content_view, addSubview: scroll_view];
 
-            // Add keyboard shortcut hints at bottom
-            let hints_height = 20.0;
+            // Minimal hints at bottom
+            let hints_height = 16.0;
             let hints_frame = NSRect::new(
-                NSPoint::new(0.0, 4.0),
+                NSPoint::new(0.0, 6.0),
                 NSSize::new(window_width, hints_height),
             );
             let hints_label: id = msg_send![class!(NSTextField), alloc];
@@ -1099,13 +1012,12 @@ impl RofiUI {
             let _: () = msg_send![hints_label, setSelectable: 0u32];
             let _: () = msg_send![hints_label, setBordered: 0u32];
             let _: () = msg_send![hints_label, setDrawsBackground: 0u32];
-            let _: () = msg_send![hints_label, setAlignment: 1i64]; // Center
-                                                                    // Dimmed text color (50% opacity)
-            let hints_color: id = msg_send![Config::hex_to_nscolor(&config.colors.text), colorWithAlphaComponent: 0.5f64];
+            let _: () = msg_send![hints_label, setAlignment: 1i64];
+            let hints_color = Config::hex_to_nscolor("#504945");
             let _: () = msg_send![hints_label, setTextColor: hints_color];
             let hints_font: id = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
             let _: () = msg_send![hints_label, setFont: hints_font];
-            let hints_str = NSString::alloc(nil).init_str("↵ Open  ·  Esc Close  ·  ←→↑↓ Navigate");
+            let hints_str = NSString::alloc(nil).init_str("enter · open    esc · close    arrows · navigate");
             let _: () = msg_send![hints_label, setStringValue: hints_str];
             let _: () = msg_send![content_view, addSubview: hints_label];
 
@@ -1144,7 +1056,6 @@ impl RofiUI {
                     _search_field: SendId(search_field),
                     _pill_buttons: pill_buttons.clone(),
                     config: config.clone(),
-                    count_label: Some(SendId(count_label)),
                 },
             );
             drop(data_map); // Release the lock
@@ -1154,17 +1065,7 @@ impl RofiUI {
 
             // Force window to be key and make search field first responder
             let _: () = msg_send![window, makeKeyAndOrderFront: nil];
-            let success: bool = msg_send![window, makeFirstResponder: search_field];
-            println!("Search field became first responder: {}", success);
-
-            // Also try to explicitly select the text field
-            let current_editor: id = msg_send![search_field, currentEditor];
-            if current_editor != nil {
-                println!("Text field has editor");
-            } else {
-                println!("Text field has NO editor - trying to activate");
-                let _: () = msg_send![search_field, becomeFirstResponder];
-            }
+            let _: bool = msg_send![window, makeFirstResponder: search_field];
 
             RofiUI {
                 _search_field: search_field,

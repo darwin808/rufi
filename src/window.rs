@@ -54,12 +54,12 @@ impl RofiWindow {
             let screen_width = screen_frame.size.width;
             let screen_height = screen_frame.size.height;
 
-            // Calculate width to fit 5 columns: 5 cells(140px each) + 4 gaps(12px) + padding(48px) = ~796px
-            let min_width: f64 = 800.0;
-            let window_width = min_width.max(screen_width / 2.5);
-            // Height calculation: search(60) + 3 rows(140*3) + padding(80) = ~560px
-            let min_height: f64 = 60.0 + (140.0 * 3.0) + 80.0;
-            let window_height = min_height.max(screen_height / 3.0);
+            // Calculate width: 5 cells(116px) + 4 gaps(12px) + padding(56px) = ~684px
+            let min_width: f64 = 684.0;
+            let window_width = min_width.max(screen_width / 3.0);
+            // Height: search(52) + 3 rows(100*3) + gaps(24) + padding(56) = ~432px
+            let min_height: f64 = 52.0 + (100.0 * 3.0) + 24.0 + 56.0;
+            let window_height = min_height.max(screen_height / 4.0);
 
             // Calculate centered position (offset 20px lower)
             let x = (screen_width - window_width) / 2.0;
@@ -77,29 +77,26 @@ impl RofiWindow {
                 NO,
             );
 
-            // Configure window properties - use normal level for keyboard input
-            let _: () = msg_send![window, setLevel: 0]; // Normal level to receive keyboard
-            let _: () = msg_send![window, setOpaque: NO]; // Transparent for modern effects
+            // Configure window properties
+            let _: () = msg_send![window, setLevel: 0];
+            let _: () = msg_send![window, setOpaque: NO];
             let _: () = msg_send![window, setHasShadow: YES];
             let _: () = msg_send![window, setMovableByWindowBackground: YES];
             let _: () = msg_send![window, setAcceptsMouseMovedEvents: YES];
 
-            // Modern rounded corners (12px for 2025 aesthetic)
+            // Solid dark background - gruvbox dark
             let content_view: id = msg_send![window, contentView];
             let _: () = msg_send![content_view, setWantsLayer: YES];
+
+            // Deep dark background
+            let bg_color = Config::hex_to_nscolor("#1d2021"); // gruvbox dark0_hard
+            let _: () = msg_send![window, setBackgroundColor: bg_color];
+            let _: () = msg_send![content_view, setBackgroundColor: bg_color];
+
+            // Smooth rounded corners
             let layer: id = msg_send![content_view, layer];
-            let _: () = msg_send![layer, setCornerRadius: 16.0f64]; // Larger, more modern
+            let _: () = msg_send![layer, setCornerRadius: 18.0f64];
             let _: () = msg_send![layer, setMasksToBounds: YES];
-
-            // Transparent background for glassmorphism
-            let cls = class!(NSColor);
-            let clear_color: id = msg_send![cls, clearColor];
-            let _: () = msg_send![window, setBackgroundColor: clear_color];
-
-            // Semi-transparent background with slight blur effect
-            let bg_color = config.get_bg_color();
-            let alpha_bg: id = msg_send![bg_color, colorWithAlphaComponent: 0.95f64];
-            let _: () = msg_send![content_view, setBackgroundColor: alpha_bg];
 
             // Make window the key window (will accept keyboard events)
             let _: () = msg_send![window, makeKeyWindow];

@@ -3,6 +3,13 @@ use fuzzy_matcher::FuzzyMatcher;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+static MATCHER: OnceLock<SkimMatcherV2> = OnceLock::new();
+
+fn get_matcher() -> &'static SkimMatcherV2 {
+    MATCHER.get_or_init(SkimMatcherV2::default)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Application {
@@ -148,7 +155,7 @@ pub fn fuzzy_search(apps: &[Application], query: &str) -> Vec<Application> {
         return apps.to_vec();
     }
 
-    let matcher = SkimMatcherV2::default();
+    let matcher = get_matcher();
     let mut results: Vec<(i64, Application)> = apps
         .iter()
         .filter_map(|app| {

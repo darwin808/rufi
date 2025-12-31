@@ -10,7 +10,7 @@ pub fn create_app_delegate() -> id {
 
         // Add method to handle app finishing launch
         extern "C" fn did_finish_launching(_: &Object, _: Sel, _: id) {
-            println!("App did finish launching");
+            // App launched successfully
         }
 
         // Add method to handle window close
