@@ -4,8 +4,8 @@ mod delegate;
 mod file_search;
 mod search_mode;
 mod system_commands;
-mod ui;
-mod window;
+pub mod ui;
+pub mod window;
 
 use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular};
 use lexopt::prelude::*;
