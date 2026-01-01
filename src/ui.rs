@@ -43,6 +43,8 @@ struct DelegateData {
     _search_field: SendId,                   // Reference to search field for refreshing
     _pill_buttons: Vec<SendId>,              // References to the 3 pill buttons
     config: Config,                          // Configuration for colors and fonts
+    prompt_label: SendId,                    // Reference to prompt label for mode switching
+    mode_badge: SendId,                      // Reference to mode badge label
 }
 
 static DELEGATE_DATA: Mutex<Option<HashMap<usize, DelegateData>>> = Mutex::new(None);
@@ -71,10 +73,20 @@ fn create_text_field_delegate_class() -> *const Class {
 
                     let text: id = msg_send![text_field, stringValue];
                     let query_cstr: *const i8 = msg_send![text, UTF8String];
-                    let query = std::ffi::CStr::from_ptr(query_cstr).to_string_lossy();
+                    let raw_query = std::ffi::CStr::from_ptr(query_cstr).to_string_lossy();
 
-                    // Get current search mode
-                    let mode = *data.search_mode.lock().unwrap();
+                    // Detect mode from prefix and strip it
+                    let (mode, query) = if raw_query.starts_with('/') {
+                        (SearchMode::Files, raw_query[1..].to_string())
+                    } else if raw_query.starts_with(':') {
+                        (SearchMode::Run, raw_query[1..].to_string())
+                    } else {
+                        (SearchMode::Apps, raw_query.to_string())
+                    };
+
+                    // Update mode and UI indicators
+                    *data.search_mode.lock().unwrap() = mode;
+                    update_mode_ui(mode, data.prompt_label.0, data.mode_badge.0);
 
                     // Filter based on mode
                     let filtered: Vec<SearchResult> = match mode {
@@ -627,6 +639,27 @@ extern "C" fn mouse_down(this: &mut Object, _: Sel, _event: id) {
     }
 }
 
+/// Updates the prompt label and mode badge based on current search mode
+unsafe fn update_mode_ui(mode: SearchMode, prompt_label: id, mode_badge: id) {
+    let (prompt_char, badge_text, color_hex) = match mode {
+        SearchMode::Apps => (">", "[apps]", "#d65d0e"),   // Orange
+        SearchMode::Files => ("/", "[files]", "#458588"), // Blue
+        SearchMode::Run => (":", "[run]", "#98971a"),     // Green
+    };
+
+    // Update prompt symbol and color
+    let prompt_str = NSString::alloc(nil).init_str(prompt_char);
+    let _: () = msg_send![prompt_label, setStringValue: prompt_str];
+    let prompt_color = Config::hex_to_nscolor(color_hex);
+    let _: () = msg_send![prompt_label, setTextColor: prompt_color];
+
+    // Update mode badge
+    let badge_str = NSString::alloc(nil).init_str(badge_text);
+    let _: () = msg_send![mode_badge, setStringValue: badge_str];
+    let badge_color: id = msg_send![prompt_color, colorWithAlphaComponent: 0.6f64];
+    let _: () = msg_send![mode_badge, setTextColor: badge_color];
+}
+
 /// Rebuilds the results grid view with the given filtered results
 /// This consolidates the duplicated grid rendering code from multiple locations
 unsafe fn rebuild_results_grid(
@@ -729,13 +762,13 @@ unsafe fn rebuild_results_grid(
             let _: () = msg_send![cell_layer, setBackgroundColor: cg_selected_bg];
 
             // Accent border
-            let accent = Config::hex_to_nscolor("#d65d0e"); // Gruvbox orange dark
+            let accent = Config::hex_to_nscolor("#fabd2f"); // Gruvbox yellow
             let cg_accent: id = msg_send![accent, CGColor];
             let _: () = msg_send![cell_layer, setBorderColor: cg_accent];
             let _: () = msg_send![cell_layer, setBorderWidth: 2.0f64];
 
             // Glow shadow
-            let glow_color = Config::hex_to_nscolor("#d65d0e");
+            let glow_color = Config::hex_to_nscolor("#fabd2f"); // Gruvbox yellow
             let cg_glow: id = msg_send![glow_color, CGColor];
             let _: () = msg_send![cell_layer, setShadowColor: cg_glow];
             let _: () = msg_send![cell_layer, setShadowOpacity: 0.4f32];
@@ -751,27 +784,40 @@ unsafe fn rebuild_results_grid(
             let _: () = msg_send![cell_layer, setShadowOpacity: 0.0f32];
         }
 
-        // Icon centered (for Apps and Files)
-        if result.result_type == SearchMode::Apps || result.result_type == SearchMode::Files {
-            let path_str = NSString::alloc(nil).init_str(&result.path);
-            let icon: id = msg_send![workspace, iconForFile: path_str];
-            let icon_ns_size = NSSize::new(ICON_SIZE, ICON_SIZE);
-            let _: () = msg_send![icon, setSize: icon_ns_size];
-            let icon_x = (CELL_WIDTH - ICON_SIZE) / 2.0;
-            let icon_y = CELL_HEIGHT - ICON_SIZE - 16.0;
-            let icon_frame = NSRect::new(
-                NSPoint::new(icon_x, icon_y),
-                NSSize::new(ICON_SIZE, ICON_SIZE),
-            );
-            let icon_view: id = msg_send![class!(NSImageView), alloc];
-            let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
-            let _: () = msg_send![icon_view, setImage: icon];
-            let _: () = msg_send![icon_view, setImageScaling: 3i64];
-            let _: () = msg_send![cell_view, addSubview: icon_view];
-        }
+        // Icon centered
+        let icon_x = (CELL_WIDTH - ICON_SIZE) / 2.0;
+        let icon_y = CELL_HEIGHT - ICON_SIZE - 16.0;
+        let icon_frame = NSRect::new(
+            NSPoint::new(icon_x, icon_y),
+            NSSize::new(ICON_SIZE, ICON_SIZE),
+        );
+
+        let icon: id = match result.result_type {
+            SearchMode::Apps | SearchMode::Files => {
+                let path_str = NSString::alloc(nil).init_str(&result.path);
+                msg_send![workspace, iconForFile: path_str]
+            }
+            SearchMode::Run => {
+                // Use Terminal app icon for commands
+                let terminal_path = NSString::alloc(nil).init_str("/System/Applications/Utilities/Terminal.app");
+                msg_send![workspace, iconForFile: terminal_path]
+            }
+        };
+
+        let icon_ns_size = NSSize::new(ICON_SIZE, ICON_SIZE);
+        let _: () = msg_send![icon, setSize: icon_ns_size];
+        let icon_view: id = msg_send![class!(NSImageView), alloc];
+        let icon_view: id = msg_send![icon_view, initWithFrame: icon_frame];
+        let _: () = msg_send![icon_view, setImage: icon];
+        let _: () = msg_send![icon_view, setImageScaling: 3i64];
+        let _: () = msg_send![cell_view, addSubview: icon_view];
+
+        // Label position depends on whether we show path hint
+        let has_path_hint = result.result_type == SearchMode::Files;
+        let label_y = if has_path_hint { 16.0 } else { 6.0 };
 
         // Label - clean, readable
-        let label_frame = NSRect::new(NSPoint::new(4.0, 6.0), NSSize::new(CELL_WIDTH - 8.0, 22.0));
+        let label_frame = NSRect::new(NSPoint::new(4.0, label_y), NSSize::new(CELL_WIDTH - 8.0, 18.0));
         let label: id = msg_send![class!(NSTextField), alloc];
         let label: id = msg_send![label, initWithFrame: label_frame];
         let _: () = msg_send![label, setEditable: 0u32];
@@ -797,6 +843,46 @@ unsafe fn rebuild_results_grid(
         let _: () = msg_send![label, setLineBreakMode: 4i64];
 
         let _: () = msg_send![cell_view, addSubview: label];
+
+        // Path hint for files (below filename)
+        if has_path_hint {
+            // Truncate path: ~/Documents/foo.txt -> ~/Doc...
+            let path = &result.path;
+            let home = std::env::var("HOME").unwrap_or_default();
+            let display_path = if path.starts_with(&home) {
+                format!("~{}", &path[home.len()..])
+            } else {
+                path.clone()
+            };
+            // Get parent directory and truncate
+            let parent = std::path::Path::new(&display_path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let truncated = if parent.len() > 12 {
+                format!("{}...", &parent[..9])
+            } else {
+                parent
+            };
+
+            let hint_frame = NSRect::new(NSPoint::new(4.0, 2.0), NSSize::new(CELL_WIDTH - 8.0, 14.0));
+            let hint_label: id = msg_send![class!(NSTextField), alloc];
+            let hint_label: id = msg_send![hint_label, initWithFrame: hint_frame];
+            let _: () = msg_send![hint_label, setEditable: 0u32];
+            let _: () = msg_send![hint_label, setSelectable: 0u32];
+            let _: () = msg_send![hint_label, setBordered: 0u32];
+            let _: () = msg_send![hint_label, setDrawsBackground: 0u32];
+            let _: () = msg_send![hint_label, setAlignment: 1i64];
+            let hint_color = Config::hex_to_nscolor("#665c54"); // Muted
+            let _: () = msg_send![hint_label, setTextColor: hint_color];
+            let hint_font: id = msg_send![font_cls, systemFontOfSize:10.0f64 weight:0.0f64];
+            let _: () = msg_send![hint_label, setFont: hint_font];
+            let hint_str = NSString::alloc(nil).init_str(&truncated);
+            let _: () = msg_send![hint_label, setStringValue: hint_str];
+            let _: () = msg_send![hint_label, setLineBreakMode: 4i64];
+            let _: () = msg_send![cell_view, addSubview: hint_label];
+        }
+
         let _: () = msg_send![results_view, addSubview: cell_view];
     }
 
@@ -896,9 +982,30 @@ impl RofiUI {
             let _: () = msg_send![prompt_label, setFont: search_font];
             let _: () = msg_send![search_container, addSubview: prompt_label];
 
-            // Create text field after prompt
+            // Mode badge (right-aligned)
+            let badge_width = 50.0;
+            let badge_frame = NSRect::new(
+                NSPoint::new(window_width - search_padding - badge_width, (search_height - 20.0) / 2.0),
+                NSSize::new(badge_width, 20.0),
+            );
+            let mode_badge: id = msg_send![class!(NSTextField), alloc];
+            let mode_badge: id = msg_send![mode_badge, initWithFrame: badge_frame];
+            let _: () = msg_send![mode_badge, setEditable: 0u32];
+            let _: () = msg_send![mode_badge, setSelectable: 0u32];
+            let _: () = msg_send![mode_badge, setBordered: 0u32];
+            let _: () = msg_send![mode_badge, setDrawsBackground: 0u32];
+            let _: () = msg_send![mode_badge, setAlignment: 2i64]; // Right align
+            let badge_str = NSString::alloc(nil).init_str("[apps]");
+            let _: () = msg_send![mode_badge, setStringValue: badge_str];
+            let badge_color: id = msg_send![prompt_color, colorWithAlphaComponent: 0.6f64];
+            let _: () = msg_send![mode_badge, setTextColor: badge_color];
+            let badge_font: id = msg_send![font_cls, systemFontOfSize:12.0f64 weight:0.0f64];
+            let _: () = msg_send![mode_badge, setFont: badge_font];
+            let _: () = msg_send![search_container, addSubview: mode_badge];
+
+            // Create text field after prompt (leave room for badge)
             let text_field_x = search_padding + prompt_width + 8.0;
-            let text_field_width = window_width - text_field_x - search_padding;
+            let text_field_width = window_width - text_field_x - search_padding - badge_width - 8.0;
             let text_field_height = 24.0;
             let text_field_y = (search_height - text_field_height) / 2.0;
 
@@ -1017,7 +1124,7 @@ impl RofiUI {
             let _: () = msg_send![hints_label, setTextColor: hints_color];
             let hints_font: id = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
             let _: () = msg_send![hints_label, setFont: hints_font];
-            let hints_str = NSString::alloc(nil).init_str("enter · open    esc · close    arrows · navigate");
+            let hints_str = NSString::alloc(nil).init_str("enter · open   esc · close   / files   : run");
             let _: () = msg_send![hints_label, setStringValue: hints_str];
             let _: () = msg_send![content_view, addSubview: hints_label];
 
@@ -1056,6 +1163,8 @@ impl RofiUI {
                     _search_field: SendId(search_field),
                     _pill_buttons: pill_buttons.clone(),
                     config: config.clone(),
+                    prompt_label: SendId(prompt_label),
+                    mode_badge: SendId(mode_badge),
                 },
             );
             drop(data_map); // Release the lock
