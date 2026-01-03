@@ -21,8 +21,8 @@ static ROW_VIEW_CLASS_INIT: Once = Once::new();
 // Grid layout constants - ultraclean aesthetic
 const GRID_COLUMNS: f64 = 5.0;
 const CELL_WIDTH: f64 = 116.0;
-const CELL_HEIGHT: f64 = 100.0;
-const ICON_SIZE: f64 = 48.0;
+const CELL_HEIGHT: f64 = 116.0;
+const ICON_SIZE: f64 = 64.0;
 const CELL_SPACING: f64 = 12.0;
 
 // Global config storage for hover callbacks
@@ -442,19 +442,39 @@ fn create_row_view_class() -> *const Class {
                 unsafe {
                     let row_index: isize = *this.get_ivar("rowIndex");
 
-                    // Apply hover background color from config
+                    // Get colors from global config
+                    let config_guard = CONFIG_DATA.lock().unwrap();
+                    let (hover_color, text_color) = if let Some(ref config) = *config_guard {
+                        (
+                            Config::hex_to_nscolor(&config.colors.selection_background),
+                            Config::hex_to_nscolor(&config.colors.selection_text),
+                        )
+                    } else {
+                        (
+                            Config::hex_to_nscolor("#d79921"),
+                            Config::hex_to_nscolor("#282828"),
+                        )
+                    };
+                    drop(config_guard);
+
+                    // Apply hover background color
                     let layer: id = msg_send![this, layer];
                     if layer != nil {
-                        // Get selection color from global config
-                        let config_guard = CONFIG_DATA.lock().unwrap();
-                        let hover_color = if let Some(ref config) = *config_guard {
-                            Config::hex_to_nscolor(&config.colors.selection_background)
-                        } else {
-                            Config::hex_to_nscolor("#d79921") // Fallback
-                        };
-                        drop(config_guard);
                         let hover_cg: id = msg_send![hover_color, CGColor];
                         let _: () = msg_send![layer, setBackgroundColor: hover_cg];
+                    }
+
+                    // Update text color for all labels in this cell
+                    let subviews: id = msg_send![this, subviews];
+                    let sub_count: usize = msg_send![subviews, count];
+                    for j in 0..sub_count {
+                        let subview: id = msg_send![subviews, objectAtIndex: j];
+                        let class_name: id = msg_send![subview, className];
+                        let cstr: *const i8 = msg_send![class_name, UTF8String];
+                        let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy();
+                        if name == "NSTextField" {
+                            let _: () = msg_send![subview, setTextColor: text_color];
+                        }
                     }
 
                     // Also update the selected index
@@ -496,13 +516,34 @@ fn create_row_view_class() -> *const Class {
             // Mouse exited - remove hover highlight
             extern "C" fn mouse_exited(this: &mut Object, _: Sel, _event: id) {
                 unsafe {
+                    // Get normal text color from config
+                    let config_guard = CONFIG_DATA.lock().unwrap();
+                    let normal_text = if let Some(ref config) = *config_guard {
+                        Config::hex_to_nscolor(&config.colors.text)
+                    } else {
+                        Config::hex_to_nscolor("#a89984")
+                    };
+                    drop(config_guard);
+
                     // Remove hover background color
                     let layer: id = msg_send![this, layer];
                     if layer != nil {
-                        // Clear background (transparent)
                         let clear_color: id = msg_send![class!(NSColor), clearColor];
                         let clear_cg: id = msg_send![clear_color, CGColor];
                         let _: () = msg_send![layer, setBackgroundColor: clear_cg];
+                    }
+
+                    // Reset text color for all labels in this cell
+                    let subviews: id = msg_send![this, subviews];
+                    let sub_count: usize = msg_send![subviews, count];
+                    for j in 0..sub_count {
+                        let subview: id = msg_send![subviews, objectAtIndex: j];
+                        let class_name: id = msg_send![subview, className];
+                        let cstr: *const i8 = msg_send![class_name, UTF8String];
+                        let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy();
+                        if name == "NSTextField" {
+                            let _: () = msg_send![subview, setTextColor: normal_text];
+                        }
                     }
                 }
             }
@@ -817,7 +858,7 @@ unsafe fn rebuild_results_grid(
         let label_y = if has_path_hint { 16.0 } else { 6.0 };
 
         // Label - clean, readable
-        let label_frame = NSRect::new(NSPoint::new(4.0, label_y), NSSize::new(CELL_WIDTH - 8.0, 18.0));
+        let label_frame = NSRect::new(NSPoint::new(4.0, label_y), NSSize::new(CELL_WIDTH - 8.0, 22.0));
         let label: id = msg_send![class!(NSTextField), alloc];
         let label: id = msg_send![label, initWithFrame: label_frame];
         let _: () = msg_send![label, setEditable: 0u32];
@@ -836,7 +877,7 @@ unsafe fn rebuild_results_grid(
 
         // Readable font size
         let font_cls = class!(NSFont);
-        let font: id = msg_send![font_cls, systemFontOfSize:12.0f64 weight:0.0f64];
+        let font: id = msg_send![font_cls, systemFontOfSize:16.0f64 weight:0.0f64];
         let _: () = msg_send![label, setFont: font];
         let name_str = NSString::alloc(nil).init_str(&result.name);
         let _: () = msg_send![label, setStringValue: name_str];
@@ -875,7 +916,7 @@ unsafe fn rebuild_results_grid(
             let _: () = msg_send![hint_label, setAlignment: 1i64];
             let hint_color = Config::hex_to_nscolor("#665c54"); // Muted
             let _: () = msg_send![hint_label, setTextColor: hint_color];
-            let hint_font: id = msg_send![font_cls, systemFontOfSize:10.0f64 weight:0.0f64];
+            let hint_font: id = msg_send![font_cls, systemFontOfSize:12.0f64 weight:0.0f64];
             let _: () = msg_send![hint_label, setFont: hint_font];
             let hint_str = NSString::alloc(nil).init_str(&truncated);
             let _: () = msg_send![hint_label, setStringValue: hint_str];
